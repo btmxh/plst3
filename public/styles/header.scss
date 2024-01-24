@@ -1,0 +1,38 @@
+.header {
+  background-color: rgb(196, 235, 255);
+  border-style: solid;
+  border-color: black;
+  border-width: 0.5rem;
+  height: 4rem;
+  margin-top: 0px;
+  transition: margin-top 1s;
+
+  & > .logo {
+    padding-right: 2rem;
+    padding-bottom: 0.5rem;
+  }
+
+  &.hidden {
+    margin-top: -4rem;
+  }
+}
+
+.logo {
+  font-style: italic;
+  font-weight: 600;
+  font-family: serif;
+  font-size: 2rem;
+  line-height: 2rem;
+}
+
+.header-nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.header-nav > a {
+  font-family: Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-size: 1.25rem;
+}

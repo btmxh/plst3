@@ -1,0 +1,68 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.preload * {
+  transition: none !important;
+}
+
+header {
+  display: flex;
+  padding: 0.5rem;
+  align-items: center;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.5;
+}
+
+h1 {
+  font-weight: bold;
+  font-size: 2rem;
+  line-height: 2;
+}
+
+a, .link-button {
+  $text-color: #027de0;
+  color: $text-color;
+  transition: all 0.5s ease;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    filter: brightness(150%);
+    text-decoration: underline;
+  }
+}
+
+.link-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: inline;
+  font: inherit;
+  text-align: start;
+  width: auto;
+  height: auto;
+  padding: 0;
+  align-items: normal;
+}
+
+blockquote {
+  background-color: antiquewhite;
+  display: inline-block;
+  padding: 0.2rem;
+}
+
+main {
+  & > p, blockquote {
+    margin-bottom: 0.5rem;
+  }
+}
+
+.small-padding {
+  padding: 1rem;
+}

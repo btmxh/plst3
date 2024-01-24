@@ -1,0 +1,11 @@
+<header class="header">
+  <h1 class="logo">plst</h1>
+  <nav>
+    <ul>
+      <li class="header-nav">
+        <a class="header-nav-link" href="/index">index</a>
+        <a class="header-nav-link" href="/watch">watch</a>
+      </li>
+    </ul>
+  </nav>
+</header>

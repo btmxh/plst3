@@ -1,0 +1,11 @@
+#yt-player-wrapper, #server-player-wrapper {
+  display: none;
+
+  &.active {
+    display: inherit;
+  }
+}
+
+#server-player {
+  width: 100%;
+}

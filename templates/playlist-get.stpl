@@ -1,0 +1,57 @@
+<% if items.is_empty() { %>
+<div style="text-align: center;">
+  <h1 style="text-align: center;">empty playlist</h1>
+  <span>add more?</span>
+</div>
+<% } else { %>
+<div class="playlist-stats">
+  Total duration:
+  <%= fmt.duration(&total_duration) %>
+</div>
+
+<% for (index, (media, item)) in std::iter::zip(medias.iter(), items.iter()).enumerate().rev() { %>
+  <% let human_index = index + 1; %>
+  <% if current_id == Some(item.id) { %>
+  <div class="playlist-entry" id="playlist-current-playing">
+  <% } else { %>
+  <div class="playlist-entry">
+  <% } %>
+    <div class="playlist-entry-content">
+      <% let name = format!("playlist-item-{}", item.id); %>
+      <input type="checkbox" name=<%- name | dbg %> value="false">
+      <label for=<%- name | dbg %>>
+        <% if current_id == Some(item.id) { %>
+          <span style="color: rgb(12, 187, 0)">&gt;</span>
+        <% } %>
+
+        <span class="playlist-index">
+          <%= human_index %>.
+        </span>
+        <% if let Some(media) = media { %>
+        <span class="playlist-entry-title"> <%= media.title %> </span>
+        -
+        <span class="playlist-entry-artist"> <%= media.artist %> </span>
+        <% } else { %>
+        Media Not Found
+        <% } %>
+      </label>
+      <div class="playlist-utilities">
+        <% if let Some(media) = media { %>
+        <a href=<%- media.url | dbg%> target="_blank">link</a>
+
+        <button class="link-button"
+                type="button"
+                style="display: inline;"
+                onclick=<%- "navigator.clipboard.writeText('TODO')" %>>
+          copy
+        </button>
+        <% } %>
+      </div>
+    </div> 
+
+    <div class="playlist-media-duration">
+      <%= media.as_ref().and_then(|m| m.duration.as_ref()).map(|d| fmt.duration(d)).unwrap_or("unknown".to_owned()) %>
+    </div>
+  </div>
+<% } %>
+<% } %>

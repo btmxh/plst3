@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% include!("./header.stpl"); %>
+  </head>
+  <body>
+    <% include!("./navbar.stpl"); %>
+    <div class="content-wrapper">
+      <main class="small-padding">
+        <h1>
+          <span class="logo">plst</span>
+          - a media player server
+        </h1>
+        <p>
+          go to
+          <a href="/watch">watch</a>
+          to watch stuff
+        </p>
+        <p>
+          use apis (undocumented) to interact with stuff
+        </p>
+
+        <blockquote>
+          <p>"dude is overengineering so hard omegalul"</p>
+          <p>"webdev is cringe"</p>
+          <p>"Have you heard of the critically defamed fugitive group hololive English -Adve..."</p>
+        </blockquote>
+
+        <p>
+          this is designed as the music player of
+          <a href="https://github.com/btmxh/nrs-impl">nrs</a>
+          (see 
+          <a href="https://github.com/btmxh/nrs-impl/issues/97">here</a>
+          for context), but one can use it as a general purpose media player
+        </p>
+
+        <p>
+          inspired by
+          <a href="https://github.com/calzoneman/sync">cy.tube</a>
+          (thanks <i>/vt/</i> for introducing me to this),
+          one can consider this to be a less bloated version of that
+        </p>
+      </main>
+    </div>
+  </body>
+</html>
