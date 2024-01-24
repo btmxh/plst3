@@ -10,10 +10,12 @@ use diesel::{
     sql_types::{Integer, Text},
     sqlite::Sqlite,
 };
+use sailfish::runtime::Render;
+use serde::Serialize;
 use time::{Duration, PrimitiveDateTime};
 use url::Url;
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, AsExpression, FromSqlRow)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, AsExpression, FromSqlRow, Serialize)]
 #[diesel(sql_type = Integer)]
 pub struct MediaId(pub i32);
 
@@ -37,6 +39,12 @@ impl ToSql<Integer, Sqlite> for MediaId {
 impl Display for MediaId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl Render for MediaId {
+    fn render(&self, b: &mut sailfish::runtime::Buffer) -> Result<(), sailfish::RenderError> {
+        self.0.render(b)
     }
 }
 
@@ -77,7 +85,13 @@ impl Display for MediaListId {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, FromSqlRow)]
+impl Render for MediaListId {
+    fn render(&self, b: &mut sailfish::runtime::Buffer) -> Result<(), sailfish::RenderError> {
+        self.0.render(b)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, FromSqlRow, Serialize)]
 pub struct DurationWrapper(pub Duration);
 
 impl AsExpression<Integer> for DurationWrapper {
@@ -172,7 +186,7 @@ impl MediaIds {
     }
 }
 
-#[derive(Queryable, Selectable, Debug)]
+#[derive(Queryable, Selectable, Debug, Serialize)]
 #[diesel(table_name = crate::schema::medias)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Media {
@@ -181,6 +195,7 @@ pub struct Media {
     pub artist: String,
     pub duration: Option<DurationWrapper>,
     pub url: String,
+    pub media_type: String,
 }
 
 #[derive(Queryable, Selectable, Debug)]
@@ -202,6 +217,7 @@ pub struct NewMedia<'a> {
     pub artist: Cow<'a, str>,
     pub duration: Option<i32>,
     pub url: Cow<'a, str>,
+    pub media_type: String,
 }
 
 #[derive(Insertable)]
@@ -211,10 +227,6 @@ pub struct NewMediaList<'a> {
     pub artist: Cow<'a, str>,
     pub media_ids: Cow<'a, str>,
     pub url: Cow<'a, str>,
-}
-
-pub fn normalize_media_url(url: &str) -> Result<Url, url::ParseError> {
-    Url::parse(url)
 }
 
 pub fn query_media_with_id(

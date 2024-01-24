@@ -1,13 +1,13 @@
-use axum::{response::Html, routing::get};
-use sailfish::TemplateOnce;
-
 use super::{app::AppRouter, ResponseResult};
+use crate::db::playlist::PlaylistId;
+use axum::{extract::Path, response::Html, routing::get};
+use sailfish::TemplateOnce;
 
 pub fn ssr_router() -> AppRouter {
     AppRouter::new()
         .route("/", get(index))
         .route("/index", get(index))
-        .route("/watch", get(watch))
+        .route("/watch/:id", get(watch))
 }
 
 #[derive(TemplateOnce)]
@@ -20,8 +20,15 @@ async fn index() -> ResponseResult<Html<String>> {
 
 #[derive(TemplateOnce)]
 #[template(path = "watch.stpl")]
-struct WatchTemplate;
+struct WatchTemplate {
+    pid: PlaylistId,
+}
 
-async fn watch() -> ResponseResult<Html<String>> {
-    Ok(Html(WatchTemplate.render_once()?))
+async fn watch(Path(pid): Path<i32>) -> ResponseResult<Html<String>> {
+    Ok(Html(
+        WatchTemplate {
+            pid: PlaylistId(pid),
+        }
+        .render_once()?,
+    ))
 }

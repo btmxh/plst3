@@ -5,11 +5,9 @@ use swc::{
     Compiler,
 };
 use swc_common::{
-    comments::SingleThreadedComments, errors::Handler, sync::Lrc, FilePathMapping, Mark,
-    SourceFile, SourceMap, GLOBALS,
+    errors::Handler, sync::Lrc, FilePathMapping, Mark, SourceFile, SourceMap, GLOBALS,
 };
 use swc_ecma_ast::EsVersion;
-use swc_ecma_codegen::{text_writer::JsWriter, Config, Emitter};
 use swc_ecma_parser::Syntax;
 use swc_ecma_transforms_typescript::strip;
 use swc_ecma_visit::FoldWith;
@@ -72,7 +70,6 @@ pub fn compile_scripts(src_dir: &Path, dst_dir: &Path) -> Result<()> {
 
     let handler =
         Handler::with_emitter_writer(Box::new(std::io::stderr()), Some(compiler.cm.clone()));
-    let comments = SingleThreadedComments::default();
     GLOBALS.set(&Default::default(), || -> Result<()> {
         let compile_results = scripts
             .iter()

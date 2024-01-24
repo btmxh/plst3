@@ -8,16 +8,20 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 async-trait = "0.1.77"
-axum = { version = "0.7.4", features = ["ws", "multipart", "macros"] }
+axum = { version = "0.7.4", features = ["ws", "multipart", "macros", "form", "json"] }
 diesel = { version = "2.1.4", features = ["sqlite", "r2d2", "time", "returning_clauses_for_sqlite_3_35"], default-features = false }
 diesel_migrations = "2.1.0"
 dotenvy = "0.15.7"
+futures = { version = "0.3.30", default-features = false }
 mpris-server = "0.6.0"
 notify = "6.1.1"
 notify-debouncer-full = "0.3.1"
 r2d2 = "0.8.10"
+reqwest = "0.11.23"
 rsass = "0.28.8"
 sailfish = { version = "0.8.3", default-features = false, features = ["perf-inline", "config", "derive"] }
+serde = { version = "1.0.195", features = ["derive"] }
+serde_json = "1.0.111"
 souvlaki = "0.7.0"
 swc = "0.271.1"
 swc_common = "0.33.14"
@@ -27,7 +31,7 @@ swc_ecma_parser = "0.142.0"
 swc_ecma_transforms_typescript = "0.187.1"
 swc_ecma_visit = "0.97.0"
 thiserror = "1.0.56"
-time = "0.3.31"
+time = { version = "0.3.31", features = ["serde"] }
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "fs"] }
 tower = "0.4.13"
 tower-http = { version = "0.5.1", features = ["trace", "compression-gzip", "fs"] }

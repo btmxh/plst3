@@ -1,0 +1,27 @@
+{
+  "name": "plst3",
+  "version": "0.1.0",
+  "description": "media player server",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/btmxh/plst3.git"
+  },
+  "keywords": [
+    "media",
+    "player",
+    "server"
+  ],
+  "author": "btmxh",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/btmxh/plst3/issues"
+  },
+  "homepage": "https://github.com/btmxh/plst3#readme",
+  "dependencies": {
+    "@types/youtube": "^0.0.50"
+  }
+}

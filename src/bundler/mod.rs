@@ -1,6 +1,11 @@
-use std::{fs::OpenOptions, io::Write, path::Path, time::Duration};
+use std::{
+    fs::OpenOptions,
+    io::{ErrorKind, Write},
+    path::Path,
+    time::Duration,
+};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use notify::{RecommendedWatcher, Watcher};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
 
@@ -13,10 +18,10 @@ mod rsass;
 mod swc;
 
 pub struct Bundler {
-    debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+    _debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
 }
 
-pub fn launch_bundler() -> Result<Bundler> {
+pub async fn launch_bundler() -> Result<Bundler> {
     let watch_dir = Path::new("public")
         .canonicalize()
         .context("unable to canonicalize public dir")?;
@@ -81,21 +86,35 @@ pub fn launch_bundler() -> Result<Bundler> {
 
     compile_all_scss(&watch_dir, dest_dir)
         .context("unable to compile scss")
-        .map_err(|e| tracing::warn!("{e}"))
+        .map_err(|e| tracing::warn!("{e:?}"))
         .ok();
     compile_scripts(&watch_dir, dest_dir)
         .context("unable to compile scripts")
-        .map_err(|e| tracing::warn!("{e}"))
+        .map_err(|e| tracing::warn!("{e:?}"))
         .ok();
     copy_assets(&watch_dir, dest_dir)
         .context("unable to copy assets")
-        .map_err(|e| tracing::warn!("{e}"))
+        .map_err(|e| tracing::warn!("{e:?}"))
         .ok();
+    download_htmx(&dest_dir.join("scripts/htmx.js"))
+        .await
+        .context("unable to download htmx.min.js")?;
 
-    Ok(Bundler { debouncer })
+    Ok(Bundler {
+        _debouncer: debouncer,
+    })
+}
+
+fn remove_file(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        e => e,
+    }
 }
 
 fn write_contents(path: &Path, content: &[u8]) -> Result<()> {
+    remove_file(path).context("unable to delete existing file")?;
     path.parent()
         .map(std::fs::create_dir_all)
         .transpose()
@@ -107,5 +126,15 @@ fn write_contents(path: &Path, content: &[u8]) -> Result<()> {
         .open(path)
         .context("unable to open destination path")?;
     file.write_all(content).context("unable to write to file")?;
+    Ok(())
+}
+
+async fn download_htmx(path: &Path) -> Result<()> {
+    const URL: &str = "https://unpkg.com/htmx.org@1.9.10/dist/htmx.min.js";
+    if !path.exists() {
+        let htmx = reqwest::get(URL).await?.text().await?;
+        write_contents(path, htmx.as_bytes())?;
+    }
+
     Ok(())
 }

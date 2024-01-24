@@ -1,1 +1,85 @@
-<% include!("./index.stpl") %>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% include!("./header.stpl"); %>
+    <link rel="stylesheet" href="/styles/player-details.css">
+    <link rel="stylesheet" href="/styles/player.css">
+    <script src="/scripts/htmx.js"></script>
+    <script src="/scripts/htmx-error.js" defer></script>
+    <script type="module" src="/scripts/watch.js" defer></script>
+    <script src="/scripts/tabbed-button-group.js" defer></script>
+  </head>
+  <body>
+    <% include!("./navbar.stpl"); %>
+    <div class="content-wrapper">
+      <main data-pid="<%= pid %>">
+        <div id="player-wrapper">
+          <div id="yt-player-wrapper">
+            <div id="yt-player">
+            </div>
+          </div>
+          <div id="server-player-wrapper">
+            <video id="server-player" src="/playlist/<%= pid %>/servermedia" controls>
+            </video>
+          </div>
+        </div>
+
+        <div id="player-details" class="tabbed-button-group">
+          <nav>
+            <ul>
+              <li> <button type="button" class="tab-button active">playlist</button> </li>
+              <li> <button type="button" class="tab-button">controller</button> </li>
+              <li> <button type="button" class="tab-button">diagnostics</button> </li>
+            </ul>
+          </nav>
+
+          <div class="tabs">
+            <section class="tab active playlist-tab">
+              <form class="add-url-form" hx-post="/playlist/<%= pid %>/add" hx-target="#diagnostics" hx-swap="afterbegin">
+                <input type="text"
+                       name="url"
+                       list="playlist-url-presets"
+                       class="text-input-drop"
+                       placeholder="add url to playlist..."
+                       ondragover="event.preventDefault()">
+
+                <datalist id="playlist-url-presets">
+                  <option value="yt.be/search:"></option>
+                  <option value="yt.be/"></option>
+                </datalist>
+
+                <button type="submit">add</button>
+                <input type="radio" name="position" value="add-to-end" id="add-to-end">
+                <label for="add-to-end">add to end</label>
+
+                <input type="radio" name="position" value="queue-next" id="queue-next" checked>
+                <label for="queue-next">queue next</label>
+              </form>
+
+              <form class="playlist-controls" hx-trigger="submit">
+                <div class="button-bar">
+                  <button type="submit" hx-trigger="load,click,refresh-playlist from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-params="*" hx-include="*">refresh</button>
+                  <button type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
+                  <button type="submit" hx-patch="/playlist/<%= pid %>/up"   hx-target="#diagnostics" hx-swap="afterbegin">up</button>
+                  <button type="submit" hx-patch="/playlist/<%= pid %>/down" hx-target="#diagnostics" hx-swap="afterbegin">down</button>
+                  <button type="submit" hx-patch="/playlist/<%= pid %>/prev" hx-target="#diagnostics" hx-swap="afterbegin">prev</button>
+                  <button type="submit" hx-delete="/playlist/<%= pid %>/delete" hx-target="#diagnostics" hx-swap="afterbegin">remove</button>
+                  <button type="button" class="scroll-to-current-playing">current</button>
+                </div>
+
+                <div id="playlist-container">
+                </div>
+              </form>
+            </section>
+
+            <section class="tab">chat</section>
+            <section class="tab">
+              <div id="diagnostics">
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

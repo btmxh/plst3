@@ -1,6 +1,6 @@
-use std::{ffi::OsStr, path::Path};
-
+use super::remove_file;
 use anyhow::{Context, Result};
+use std::{ffi::OsStr, path::Path};
 use walkdir::WalkDir;
 
 fn is_asset_path(path: &Path) -> bool {
@@ -30,18 +30,21 @@ pub fn copy_assets(src_dir: &Path, dst_dir: &Path) -> Result<()> {
 
 #[cfg(unix)]
 pub fn create_asset_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    remove_file(dst)?;
     dst.parent().map(std::fs::create_dir_all).transpose()?;
     std::os::unix::fs::symlink(src, dst)
 }
 
 #[cfg(windows)]
 pub fn create_asset_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    remove_file(dst)?;
     dst.parent().map(std::fs::create_dir_all).transpose()?;
     std::os::windows::fs::symlink_file(src, dst)
 }
 
 #[cfg(all(not(windows), not(unix)))]
 pub fn create_asset_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    remove_file(dst)?;
     dst.parent().map(std::fs::create_dir_all).transpose()?;
     std::fs::copy(src, dst)
 }

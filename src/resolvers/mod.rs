@@ -19,6 +19,13 @@ pub enum MediaResolveError {
     ResourceNotFound,
 }
 
+pub async fn normalize_media_url(url: &str) -> Result<Url, url::ParseError> {
+    let url = Url::parse(url)?;
+    let url = youtube::normalize_media_url(url);
+    let url = local::normalize_media_url(url).await;
+    Ok(url)
+}
+
 pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveError> {
     let mut invalid = vec![];
     let mut not_found = vec![];

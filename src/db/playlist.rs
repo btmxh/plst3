@@ -10,17 +10,18 @@ use diesel::{
     sqlite::Sqlite,
     ExpressionMethods, Queryable, Selectable, SelectableHelper, SqliteConnection,
 };
+use sailfish::runtime::Render;
 use time::PrimitiveDateTime;
 
 use super::{
     media::MediaId,
     playlist_item::{
         insert_playlist_item, query_playlist_item, update_playlist_item_next_id, NewPlaylistItem,
-        PlaylistItemId,
+        PlaylistItemId, update_playlist_item_prev_id,
     },
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, FromSqlRow, AsExpression)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Integer)]
 pub struct PlaylistId(pub i32);
 
@@ -44,6 +45,12 @@ impl ToSql<Integer, Sqlite> for PlaylistId {
 impl Display for PlaylistId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl Render for PlaylistId {
+    fn render(&self, b: &mut sailfish::runtime::Buffer) -> Result<(), sailfish::RenderError> {
+        self.0.render(b)
     }
 }
 
@@ -121,7 +128,10 @@ pub fn append_to_playlist(
             update_playlist_first_item(db_conn, playlist_id, Some(item_id))
                 .context("unable to update first playlist item id")?;
         }
-        if next.is_none() {
+        if let Some(next) = next {
+            update_playlist_item_prev_id(db_conn, next, Some(item_id))
+                .context("unable to update prev playlist item id")?;
+        } else {
             update_playlist_last_item(db_conn, playlist_id, Some(item_id))
                 .context("unable to update last playlist item id")?;
         }
@@ -152,6 +162,20 @@ fn update_playlist_last_item(
     diesel::update(playlists)
         .filter(id.eq(playlist_id))
         .set(last_playlist_item.eq(item_id))
+        .execute(db_conn)
+        .context("unable to update playlist first item")
+        .map(|_| {})
+}
+
+pub(crate) fn update_playlist_current_item(
+    db_conn: &mut SqliteConnection,
+    playlist_id: PlaylistId,
+    item_id: Option<PlaylistItemId>,
+) -> Result<()> {
+    use crate::schema::playlists::dsl::*;
+    diesel::update(playlists)
+        .filter(id.eq(playlist_id))
+        .set(current_item.eq(item_id))
         .execute(db_conn)
         .context("unable to update playlist first item")
         .map(|_| {})

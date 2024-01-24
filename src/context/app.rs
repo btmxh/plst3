@@ -1,21 +1,33 @@
-use super::{playlist::playlist_router, ssr::ssr_router, static_files::static_file_router};
+use super::{
+    playlist::playlist_router, ssr::ssr_router, static_files::static_file_router, ws::ws_router,
+};
 use crate::{
     db::{
         establish_connection,
         media::{
-            insert_media, insert_media_list, normalize_media_url, query_media_list_with_url,
-            query_media_with_url, MediaId, MediaIdList, MediaIds,
+            insert_media, insert_media_list, query_media_list_with_url, query_media_with_id,
+            query_media_with_url, Media, MediaId, MediaIdList, MediaIds,
         },
-        playlist::{query_playlist_from_id, Playlist, PlaylistId},
+        playlist::{query_playlist_from_id, update_playlist_current_item, PlaylistId},
+        playlist_item::{
+            query_playlist_item, set_playlist_item_as_current, PlaylistItem, PlaylistItemId,
+        },
         SqliteConnectionPool,
     },
-    resolvers::{resolve_media, resolve_media_list, MediaResolveError},
+    resolvers::{normalize_media_url, resolve_media, resolve_media_list, MediaResolveError},
 };
-use anyhow::{Context, Result};
-use axum::Router;
+use anyhow::{anyhow, Context, Result};
+use axum::{
+    extract::ws::{Message, WebSocket},
+    Router,
+};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
+use futures::{stream::SplitSink, SinkExt};
 use r2d2::PooledConnection;
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
@@ -23,7 +35,8 @@ use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 
 pub struct AppState {
     db_pool: SqliteConnectionPool,
-    pub current_playlist: Mutex<Option<PlaylistId>>,
+    current_playlist: Mutex<Option<PlaylistId>>,
+    pub sockets: Mutex<HashMap<PlaylistId, Vec<SplitSink<WebSocket, Message>>>>,
 }
 
 #[cfg(mpirs)]
@@ -284,6 +297,7 @@ impl AppState {
             db_pool: establish_connection()
                 .context("unable to establish connection to database")?,
             current_playlist: Mutex::new(Self::current_playlist_env()),
+            sockets: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -292,6 +306,7 @@ impl AppState {
             .merge(playlist_router())
             .merge(ssr_router())
             .merge(static_file_router())
+            .merge(ws_router())
             .with_state(self)
             .layer(
                 ServiceBuilder::new()
@@ -321,7 +336,9 @@ impl AppState {
         db_conn: &mut SqliteConnection,
         media_url: &str,
     ) -> Result<MediaId, FetchMediaError> {
-        let media_url = normalize_media_url(media_url).map_err(FetchMediaError::InvalidUrl)?;
+        let media_url = normalize_media_url(media_url)
+            .await
+            .map_err(FetchMediaError::InvalidUrl)?;
         if let Some(media) =
             query_media_with_url(db_conn, &media_url).map_err(FetchMediaError::DatabaseError)?
         {
@@ -340,7 +357,10 @@ impl AppState {
         db_conn: &mut SqliteConnection,
         media_url: &str,
     ) -> Result<MediaIds, FetchMediaError> {
-        let media_url = normalize_media_url(media_url).map_err(FetchMediaError::InvalidUrl)?;
+        let media_url = normalize_media_url(media_url)
+            .await
+            .map_err(FetchMediaError::InvalidUrl)?;
+        tracing::info!("fetching media with url: {media_url}");
         if let Some(media) =
             query_media_with_url(db_conn, &media_url).map_err(FetchMediaError::DatabaseError)?
         {
@@ -413,18 +433,117 @@ impl AppState {
         }
     }
 
-    pub async fn _get_current_playlist(
-        &self,
-        db_conn: &mut SqliteConnection,
-    ) -> Result<Option<Playlist>> {
-        let playlist_id = *self.current_playlist.lock().await;
-        playlist_id
-            .map(|id| query_playlist_from_id(db_conn, id))
-            .transpose()
-            .map(Option::flatten)
-    }
-
     pub async fn set_current_playlist(&self, id: Option<PlaylistId>) {
         *self.current_playlist.lock().await = id;
+    }
+
+    pub async fn add_websocket(
+        &self,
+        playlist_id: PlaylistId,
+        socket: SplitSink<WebSocket, Message>,
+    ) {
+        match self.sockets.lock().await.entry(playlist_id) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(v) => v.insert(Vec::new()),
+        }
+        .push(socket);
+    }
+
+    pub async fn send_message(&self, playlist_id: PlaylistId, message: &str) {
+        if let Some(sockets) = self.sockets.lock().await.get_mut(&playlist_id) {
+            let mut i: usize = 0;
+            while i < sockets.len() {
+                if let Err(err) = sockets[i].send(Message::Text(message.to_owned())).await {
+                    tracing::info!("closing WebSocket connection due to error: {err}");
+                    let _ = sockets.swap_remove(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    pub async fn refresh_playlist(&self, playlist_id: PlaylistId) {
+        self.send_message(playlist_id, "refresh-playlist").await
+    }
+    pub async fn media_changed(&self, playlist_id: PlaylistId) {
+        self.send_message(playlist_id, "media-changed").await
+    }
+    pub async fn play(&self, playlist_id: PlaylistId) {
+        self.send_message(playlist_id, "play").await
+    }
+    pub async fn pause(&self, playlist_id: PlaylistId) {
+        self.send_message(playlist_id, "pause").await
+    }
+    pub async fn playpause(&self, playlist_id: PlaylistId) {
+        self.send_message(playlist_id, "playpause").await
+    }
+
+    pub async fn get_current_item(
+        db_conn: &mut SqliteConnection,
+        playlist_id: PlaylistId,
+    ) -> Result<Option<PlaylistItem>> {
+        Ok(query_playlist_from_id(db_conn, playlist_id)
+            .context("unable to query playlist")?
+            .and_then(|p| p.current_item)
+            .map(|item_id| query_playlist_item(db_conn, item_id))
+            .transpose()?
+            .flatten())
+    }
+
+    pub async fn get_current_media(
+        db_conn: &mut SqliteConnection,
+        playlist_id: PlaylistId,
+    ) -> Result<Option<Media>> {
+        Ok(Self::get_current_item(db_conn, playlist_id)
+            .await?
+            .map(|item| query_media_with_id(db_conn, item.media_id))
+            .transpose()?
+            .flatten())
+    }
+
+    pub async fn set_playlist_item_as_current(
+        &self,
+        db_conn: &mut SqliteConnection,
+        item_id: PlaylistItemId,
+    ) -> Result<()> {
+        let item = query_playlist_item(db_conn, item_id)
+            .context("unable to query playlist item")?
+            .ok_or_else(|| anyhow!("playlist item not found"))?;
+        update_playlist_current_item(db_conn, item.playlist_id, Some(item_id))
+            .context("unable to update playlist current item")?;
+        self.media_changed(item.playlist_id).await;
+        Ok(())
+    }
+
+    pub async fn next(&self, playlist_id: PlaylistId) -> Result<()> {
+        let mut db_conn = self.acquire_db_connection()?;
+        if let Some(item) = Self::get_current_item(&mut db_conn, playlist_id)
+            .await
+            .context("unable to get current item of playlist")?
+            .and_then(|item| item.next)
+        {
+            set_playlist_item_as_current(self, &mut db_conn, item).await?;
+        } else if let Some(item) = query_playlist_from_id(&mut db_conn, playlist_id)
+            .context("unable to query playlist")?
+            .and_then(|p| p.first_playlist_item)
+        {
+            set_playlist_item_as_current(self, &mut db_conn, item).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn handle_websocket_message(&self, message: &str, playlist_id: PlaylistId) {
+        match message {
+            "next" => {
+                self.next(playlist_id)
+                    .await
+                    .map_err(|e| tracing::warn!("unable to go to next media: {e}"))
+                    .ok();
+            }
+            "play" => {}
+            "pause" => {}
+            m => tracing::warn!("unrecognizable message: {m}"),
+        }
     }
 }

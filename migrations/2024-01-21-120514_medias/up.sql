@@ -4,7 +4,8 @@ CREATE TABLE medias (
   artist TEXT NOT NULL,
   duration INTEGER,
   url TEXT NOT NULL,
-  add_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  add_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  media_type TEXT NOT NULL
 );
 
 CREATE TABLE media_lists(

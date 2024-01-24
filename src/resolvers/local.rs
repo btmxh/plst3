@@ -62,6 +62,24 @@ async fn get_media_duration(path: &Path) -> Result<Option<i32>> {
     todo!()
 }
 
+pub async fn normalize_media_url(url: Url) -> Url {
+    if url.scheme() == "file" {
+        if let Ok(path) = url.to_file_path() {
+            if let Ok(path) = tokio::fs::canonicalize(path).await {
+                if let Ok(metadata) = tokio::fs::metadata(&path).await {
+                    if metadata.is_file() {
+                        return Url::from_file_path(path).unwrap_or(url);
+                    } else {
+                        return Url::from_directory_path(path).unwrap_or(url);
+                    }
+                }
+            }
+        }
+    }
+
+    url
+}
+
 pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveError> {
     if url.scheme() == "file" {
         if let Ok(path) = url.to_file_path() {
@@ -79,6 +97,7 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
                             .await
                             .context("unable to create url for file path")?
                             .into(),
+                        media_type: "local".into(),
                     })
                 }
                 Ok(_) => Err(MediaResolveError::InvalidResource),

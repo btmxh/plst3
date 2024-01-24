@@ -10,6 +10,7 @@ pub mod app;
 mod playlist;
 mod ssr;
 mod static_files;
+mod ws;
 
 pub async fn create_app_router() -> Result<Router> {
     let app = AppState::new()

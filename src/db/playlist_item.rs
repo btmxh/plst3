@@ -1,6 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use diesel::{
     deserialize::{FromSql, FromSqlRow},
     expression::AsExpression,
@@ -10,9 +10,15 @@ use diesel::{
     sqlite::Sqlite,
     ExpressionMethods, Queryable, Selectable, SelectableHelper, SqliteConnection,
 };
+use sailfish::runtime::Render;
 use time::PrimitiveDateTime;
 
-use super::{media::MediaId, playlist::PlaylistId};
+use crate::context::app::AppState;
+
+use super::{
+    media::MediaId,
+    playlist::{update_playlist_current_item, PlaylistId},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Integer)]
@@ -46,6 +52,12 @@ impl FromStr for PlaylistItemId {
 impl Display for PlaylistItemId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl Render for PlaylistItemId {
+    fn render(&self, b: &mut sailfish::runtime::Buffer) -> Result<(), sailfish::RenderError> {
+        self.0.render(b)
     }
 }
 
@@ -113,3 +125,18 @@ pub fn update_playlist_item_next_id(
         .context("unable to update playlist item next id")
         .map(|_| {})
 }
+
+pub fn update_playlist_item_prev_id(
+    db_conn: &mut SqliteConnection,
+    item_id: PlaylistItemId,
+    prev_id: Option<PlaylistItemId>,
+) -> Result<()> {
+    use crate::schema::playlist_items::dsl::*;
+    diesel::update(playlist_items)
+        .filter(id.eq(item_id))
+        .set(prev.eq(prev_id))
+        .execute(db_conn)
+        .context("unable to update playlist item next id")
+        .map(|_| {})
+}
+

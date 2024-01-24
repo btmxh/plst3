@@ -22,18 +22,22 @@ pub enum YoutubeUrlParseResult<'a> {
     Invalid,
 }
 
+fn check_video_id(id: &str) -> bool {
+    const VIDEO_ID_LENGTH: usize = 11;
+    id.len() == VIDEO_ID_LENGTH
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
     if url.scheme() != "https" {
         return YoutubeUrlParseResult::Invalid;
     }
 
     {
-        const VIDEO_ID_LENGTH: usize = 11;
         let path = &url.path()[1..];
-        if path.len() == VIDEO_ID_LENGTH
-            && url.host_str() == Some("youtu.be")
-            && path.chars().all(|c| c.is_ascii_alphanumeric())
-        {
+        if check_video_id(path) && url.host_str() == Some("youtu.be") {
             return YoutubeUrlParseResult::Video(path.into());
         }
     }
@@ -52,6 +56,40 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
     }
 
     YoutubeUrlParseResult::Invalid
+}
+
+pub fn normalize_media_url(url: Url) -> Url {
+    if !url
+        .host_str()
+        .map(|host| host.contains("youtube") || host.contains("youtu.be") || host.contains("yt.be"))
+        .unwrap_or_default()
+    {
+        return url;
+    }
+
+    {
+        let video_id = url
+            .query_pairs()
+            .find(|(key, _)| key == "v")
+            .map(|(_, value)| value)
+            .unwrap_or(url.path().into());
+        if check_video_id(&video_id) {
+            return Url::parse(&format!("https://youtu.be/{video_id}")).unwrap_or(url);
+        }
+    }
+
+    {
+        let list_id = url
+            .query_pairs()
+            .find(|(key, _)| key == "list")
+            .map(|(_, value)| value);
+        if let Some(list_id) = list_id {
+            return Url::parse(&format!("https://youtube.com/playlist?list={list_id}"))
+                .unwrap_or(url);
+        }
+    }
+
+    url
 }
 
 pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveError> {
@@ -82,6 +120,7 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
                 .and_then(|v| v.as_f64())
                 .map(|v| v.round() as i32),
             url: url.to_string().into(),
+            media_type: "yt".into(),
         }),
         Ok(_) => Err(MediaResolveError::InvalidResource),
         Err(youtube_dl::Error::Json(_)) => Err(MediaResolveError::ResourceNotFound),

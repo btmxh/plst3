@@ -17,9 +17,8 @@
   <div class="playlist-entry">
   <% } %>
     <div class="playlist-entry-content">
-      <% let name = format!("playlist-item-{}", item.id); %>
-      <input type="checkbox" name=<%- name | dbg %> value="false">
-      <label for=<%- name | dbg %>>
+      <input type="checkbox" name="playlist-item-<%= item.id %>" value="false">
+      <label for="playlist-item-<%= item.id %>">
         <% if current_id == Some(item.id) { %>
           <span style="color: rgb(12, 187, 0)">&gt;</span>
         <% } %>
@@ -37,7 +36,7 @@
       </label>
       <div class="playlist-utilities">
         <% if let Some(media) = media { %>
-        <a href=<%- media.url | dbg%> target="_blank">link</a>
+        <a href=<%- media.url | dbg %> target="_blank">link</a>
 
         <button class="link-button"
                 type="button"
@@ -45,6 +44,10 @@
                 onclick=<%- "navigator.clipboard.writeText('TODO')" %>>
           copy
         </button>
+
+        <a hx-patch="/playlist/goto/<%= item.id %>" hx-target="#diagnostics" hx-swap="afterbegin">
+          goto
+        </a>
         <% } %>
       </div>
     </div> 
