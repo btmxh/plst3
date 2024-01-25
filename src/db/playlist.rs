@@ -16,8 +16,8 @@ use time::PrimitiveDateTime;
 use super::{
     media::MediaId,
     playlist_item::{
-        insert_playlist_item, query_playlist_item, update_playlist_item_next_id, NewPlaylistItem,
-        PlaylistItemId, update_playlist_item_prev_id,
+        insert_playlist_item, query_playlist_item, update_playlist_item_next_id,
+        update_playlist_item_prev_id, NewPlaylistItem, PlaylistItemId,
     },
 };
 
@@ -108,7 +108,7 @@ pub fn append_to_playlist(
         .map(Option::flatten)
         .context("unable to query pivot playlist item")?;
     let next = prev_item.and_then(|p| p.next);
-    let last_id = None;
+    let mut last_id = None;
     for media_id in media_ids {
         let prev = last_id.or(after_id);
         let item_id = insert_playlist_item(
@@ -135,6 +135,7 @@ pub fn append_to_playlist(
             update_playlist_last_item(db_conn, playlist_id, Some(item_id))
                 .context("unable to update last playlist item id")?;
         }
+        last_id = Some(item_id);
     }
     Ok(true)
 }
