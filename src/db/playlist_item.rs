@@ -13,14 +13,15 @@ use diesel::{
 use sailfish::runtime::Render;
 use time::PrimitiveDateTime;
 
-use crate::context::app::AppState;
-
 use super::{
-    media::MediaId,
-    playlist::{update_playlist_current_item, PlaylistId},
+    media::{query_media_with_id, DurationWrapper, MediaId},
+    playlist::{
+        update_playlist, update_playlist_current_item, update_playlist_first_item,
+        update_playlist_last_item, PlaylistId,
+    },
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, FromSqlRow, AsExpression)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Integer)]
 pub struct PlaylistItemId(pub i32);
 
@@ -140,3 +141,56 @@ pub fn update_playlist_item_prev_id(
         .map(|_| {})
 }
 
+pub fn update_playlist_item_prev_and_next_id(
+    db_conn: &mut SqliteConnection,
+    item_id: PlaylistItemId,
+    prev_id: Option<PlaylistItemId>,
+    next_id: Option<PlaylistItemId>,
+) -> Result<()> {
+    use crate::schema::playlist_items::dsl::*;
+    diesel::update(playlist_items)
+        .filter(id.eq(item_id))
+        .set((prev.eq(prev_id), next.eq(next_id)))
+        .execute(db_conn)
+        .context("unable to update playlist item next id")
+        .map(|_| {})
+}
+
+pub fn remove_playlist_item(
+    db_conn: &mut SqliteConnection,
+    item_id: PlaylistItemId,
+) -> Result<bool> {
+    let item =
+        query_playlist_item(db_conn, item_id)?.ok_or_else(|| anyhow!("playlist item not found"))?;
+    if let Some(prev) = item.prev {
+        update_playlist_item_next_id(db_conn, prev, item.next)?;
+    } else {
+        update_playlist_first_item(db_conn, item.playlist_id, item.next)?;
+    }
+    if let Some(next) = item.next {
+        update_playlist_item_prev_id(db_conn, next, item.prev)?;
+    } else {
+        update_playlist_last_item(db_conn, item.playlist_id, item.prev)?;
+    }
+    let media =
+        query_media_with_id(db_conn, item.media_id)?.ok_or_else(|| anyhow!("media not found"))?;
+    let playlist = update_playlist(
+        db_conn,
+        item.playlist_id,
+        -media.duration.unwrap_or_default().0,
+        -1,
+    )?;
+    let media_changed = playlist.current_item == Some(item_id);
+    if media_changed {
+        update_playlist_current_item(db_conn, playlist.id, None)?;
+    }
+
+    {
+        use crate::schema::playlist_items::dsl::*;
+        diesel::delete(playlist_items)
+            .filter(id.eq_all(item_id))
+            .execute(db_conn)
+            .context("unable to delete playlist item")?;
+    }
+    Ok(media_changed)
+}

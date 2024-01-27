@@ -14,7 +14,8 @@ CREATE TABLE media_lists(
   artist TEXT,
   media_ids TEXT NOT NULL,
   url TEXT NOT NULL,
-  add_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  add_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  total_duration INTEGER NOT NULL
 );
 
 CREATE TABLE playlist_items(
@@ -32,5 +33,7 @@ CREATE TABLE playlists(
   first_playlist_item INTEGER,
   last_playlist_item INTEGER,
   add_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  current_item INTEGER
+  current_item INTEGER,
+  num_items INTEGER NOT NULL DEFAULT 0,
+  total_duration INTEGER NOT NULL DEFAULT 0
 );

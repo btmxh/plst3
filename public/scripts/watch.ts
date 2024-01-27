@@ -10,6 +10,8 @@ const serverVideoPlayer = document.getElementById(
   "server-player",
 ) as HTMLVideoElement;
 serverVideoPlayer.addEventListener("ended", (e) => socket?.send("next"));
+serverVideoPlayer.addEventListener("pause", (e) => socket?.send("pause"));
+serverVideoPlayer.addEventListener("play", (e) => socket?.send("play"));
 
 const stopAllPlayers = async () => {
   await stopAllYTPlayers();
@@ -89,7 +91,7 @@ const playerPause = async () => {
     const player = await getCachedYoutubePlayer("yt-player");
     player.pauseVideo();
   } else if (current?.media_type === "local") {
-    serverVideoPlayer.play();
+    serverVideoPlayer.pause();
   }
 };
 

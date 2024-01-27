@@ -19,7 +19,7 @@
             </div>
           </div>
           <div id="server-player-wrapper">
-            <video id="server-player" src="/playlist/<%= pid %>/servermedia" controls>
+            <video id="server-player" preload="none" src="" controls>
             </video>
           </div>
         </div>

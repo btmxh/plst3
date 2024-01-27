@@ -5,25 +5,35 @@ use super::{
 use crate::{
     db::{
         media::{query_media_with_id, Media, MediaId},
-        playlist::{append_to_playlist, create_empty_playlist, query_playlist_from_id, PlaylistId},
+        playlist::{
+            append_to_playlist, create_empty_playlist, query_playlist_from_id,
+            update_playlist_first_item, update_playlist_last_item, PlaylistId,
+        },
         playlist_item::{
-            query_playlist_item, set_playlist_item_as_current, PlaylistItem, PlaylistItemId,
+            query_playlist_item, remove_playlist_item, update_playlist_item_next_id,
+            update_playlist_item_prev_and_next_id, update_playlist_item_prev_id, PlaylistItem,
+            PlaylistItemId,
         },
     },
     resolvers::MediaResolveError,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{FromRequest, Path, Query, State},
     http::{Request, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
+use diesel::SqliteConnection;
 use sailfish::TemplateOnce;
 use serde::Deserialize;
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use time::Duration;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -41,6 +51,9 @@ pub fn playlist_router() -> AppRouter {
         .route("/servermedia/:id", get(servermedia))
         .route("/playlist/goto/:id", patch(playlist_goto))
         .route("/playlist/:id/api/current", get(playlist_current))
+        .route("/playlist/:id/delete", delete(playlist_delete))
+        .route("/playlist/:id/up", patch(playlist_move_up))
+        .route("/playlist/:id/down", patch(playlist_move_down))
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,7 +85,6 @@ async fn playlist_add(
     let PlaylistArgInfo { position, url } = info;
     match app.fetch_medias(&mut db_conn, &url).await {
         Ok(medias) => {
-            let media_ids = medias.media_ids();
             let playlist = query_playlist_from_id(&mut db_conn, playlist_id)
                 .context("unable to fetch current playlist")?;
             if let Some(playlist) = playlist {
@@ -81,8 +93,16 @@ async fn playlist_add(
                     AddPosition::AddToEnd => playlist.last_playlist_item,
                 }
                 .or(playlist.last_playlist_item);
-                let updated = append_to_playlist(&mut db_conn, playlist.id, pivot, media_ids)
-                    .context("unable to append playlist items to playlist")?;
+                let total_duration = medias.total_duration();
+                let media_ids = medias.media_ids();
+                let updated = append_to_playlist(
+                    &mut db_conn,
+                    playlist.id,
+                    pivot,
+                    &media_ids,
+                    total_duration,
+                )
+                .context("unable to append playlist items to playlist")?;
                 let msg = if updated {
                     "Media(s) added"
                 } else {
@@ -161,6 +181,7 @@ struct PlaylistGetTemplate {
     items: Vec<PlaylistItem>,
     medias: Vec<Option<Media>>,
     total_duration: Duration,
+    total_clients: usize,
     fmt: Formatter,
 }
 
@@ -210,24 +231,18 @@ async fn playlist_get(
     }
 
     let mut medias = Vec::with_capacity(items.len());
-    let mut total_duration = Duration::ZERO;
     for item in items.iter() {
         let media = query_media_with_id(&mut db_conn, item.media_id)
             .context("unable to query media for playlist item")?;
-        total_duration += media
-            .as_ref()
-            .and_then(|media| media.duration)
-            .map(|duration| duration.0)
-            .unwrap_or_default();
         medias.push(media);
     }
 
     let template_args = PlaylistGetTemplate {
-        // pid: PlaylistId(playlist_id),
         items,
         medias,
         current_id: playlist.current_item,
-        total_duration,
+        total_duration: playlist.total_duration.0,
+        total_clients: app.get_num_clients(playlist.id).await,
         fmt: Formatter,
     };
 
@@ -249,26 +264,8 @@ async fn playlist_prev(
     Path(playlist_id): Path<i32>,
     State(app): State<Arc<AppState>>,
 ) -> ResponseResult<Response> {
-    let playlist_id = PlaylistId(playlist_id);
-    let mut db_conn = app.acquire_db_connection()?;
-    if let Some(item) = AppState::get_current_item(&mut db_conn, playlist_id)
-        .await
-        .context("unable to get current item of playlist")?
-        .and_then(|item| item.prev)
-    {
-        set_playlist_item_as_current(&app, &mut db_conn, item).await?;
-        return Ok("a".into_response());
-    }
-
-    if let Some(item) = query_playlist_from_id(&mut db_conn, playlist_id)
-        .context("unable to query playlist")?
-        .and_then(|p| p.last_playlist_item)
-    {
-        set_playlist_item_as_current(&app, &mut db_conn, item).await?;
-        return Ok("a".into_response());
-    }
-
-    Ok((StatusCode::NO_CONTENT, "").into_response())
+    app.prev(PlaylistId(playlist_id)).await?;
+    Ok("a".into_response())
 }
 
 async fn legacy_servermedia(
@@ -324,7 +321,8 @@ async fn playlist_goto(
 ) -> ResponseResult<&'static str> {
     let item_id = PlaylistItemId(item_id);
     let mut db_conn = app.acquire_db_connection()?;
-    set_playlist_item_as_current(&app, &mut db_conn, item_id).await?;
+    app.set_playlist_item_as_current(&mut db_conn, None, item_id)
+        .await?;
     Ok("goto successfully")
 }
 
@@ -340,6 +338,169 @@ async fn playlist_current(
     {
         Ok(Json(media).into_response())
     } else {
-        Ok((StatusCode::NOT_FOUND, "not found").into_response())
+        Ok(Json(serde_json::Value::Null).into_response())
     }
+}
+
+async fn playlist_delete(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+    Form(ids): Form<HashMap<String, String>>,
+) -> ResponseResult<Response> {
+    let playlist_id = PlaylistId(playlist_id);
+    let mut db_conn = app.acquire_db_connection()?;
+    let ids = ids
+        .keys()
+        .filter_map(|key| key.strip_prefix("playlist-item-"))
+        .filter_map(|id| id.parse::<PlaylistItemId>().ok())
+        .collect::<Box<_>>();
+    let mut media_changed = false;
+    for id in &*ids {
+        media_changed |=
+            remove_playlist_item(&mut db_conn, *id).context("unable to delete playlist item")?;
+    }
+
+    app.refresh_playlist(playlist_id).await;
+    if media_changed {
+        app.media_changed(playlist_id).await;
+    }
+
+    Ok(().into_response())
+}
+
+#[derive(Clone, Debug)]
+struct PlaylistItemRange {
+    first: PlaylistItemId,
+    last: PlaylistItemId,
+}
+
+fn partition_ids_into_ranges(
+    db_conn: &mut SqliteConnection,
+    ids: HashMap<String, String>,
+) -> Result<Vec<PlaylistItemRange>> {
+    let ids = ids
+        .keys()
+        .filter_map(|key| key.strip_prefix("playlist-item-"))
+        .filter_map(|id| id.parse::<PlaylistItemId>().ok())
+        .collect::<Box<[_]>>();
+    let mut range_dict = HashMap::new();
+    let mut items = Vec::new();
+    for id in &*ids {
+        let item =
+            query_playlist_item(db_conn, *id)?.ok_or_else(|| anyhow!("playlist item not found"))?;
+        range_dict.insert(
+            *id,
+            PlaylistItemRange {
+                first: *id,
+                last: *id,
+            },
+        );
+        items.push(item);
+    }
+
+    for item in items {
+        if let Some(prev_item) = item.prev.as_ref() {
+            let prev_range = range_dict.get(prev_item);
+            let cur_range = range_dict.get(&item.id);
+
+            if let Some((prev_range, cur_range)) = prev_range.zip(cur_range) {
+                // merge prev_range and cur_range
+                let merged_range = PlaylistItemRange {
+                    first: prev_range.first,
+                    last: cur_range.last,
+                };
+
+                range_dict.remove(prev_item);
+                range_dict.remove(&item.id);
+                range_dict.insert(merged_range.first, merged_range.clone());
+                range_dict.insert(merged_range.last, merged_range.clone());
+            }
+        }
+    }
+
+    let ranges = range_dict
+        .into_iter()
+        .filter(|(id, range)| *id == range.first)
+        .map(|(_, range)| range)
+        .collect();
+    Ok(ranges)
+}
+
+async fn playlist_move_up(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+    Form(ids): Form<HashMap<String, String>>,
+) -> ResponseResult<()> {
+    let playlist_id = PlaylistId(playlist_id);
+    let mut db_conn = app.acquire_db_connection()?;
+    let ranges = partition_ids_into_ranges(&mut db_conn, ids)?;
+    for range in ranges {
+        tracing::info!("{range:?}");
+        let PlaylistItemRange { first, last } = range;
+        let prev = query_playlist_item(&mut db_conn, first)?
+            .ok_or_else(|| anyhow!("playlist item not found"))?
+            .prev;
+        let next = query_playlist_item(&mut db_conn, last)?
+            .ok_or_else(|| anyhow!("playlist item not found"))?
+            .next;
+        if let Some(next) = next {
+            let next_next = query_playlist_item(&mut db_conn, next)?
+                .ok_or_else(|| anyhow!("playlist item not found"))?
+                .next;
+            update_playlist_item_prev_and_next_id(&mut db_conn, next, prev, Some(first))?;
+            update_playlist_item_prev_id(&mut db_conn, first, Some(next))?;
+            update_playlist_item_next_id(&mut db_conn, last, next_next)?;
+            if let Some(next_next) = next_next {
+                update_playlist_item_prev_id(&mut db_conn, next_next, Some(last))?;
+            } else {
+                update_playlist_last_item(&mut db_conn, playlist_id, Some(last))?;
+            }
+            if let Some(prev) = prev {
+                update_playlist_item_next_id(&mut db_conn, prev, Some(next))?;
+            } else {
+                update_playlist_first_item(&mut db_conn, playlist_id, Some(next))?;
+            }
+        }
+    }
+    app.refresh_playlist(playlist_id).await;
+    Ok(())
+}
+
+async fn playlist_move_down(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+    Form(ids): Form<HashMap<String, String>>,
+) -> ResponseResult<()> {
+    let playlist_id = PlaylistId(playlist_id);
+    let mut db_conn = app.acquire_db_connection()?;
+    let ranges = partition_ids_into_ranges(&mut db_conn, ids)?;
+    for range in ranges {
+        let PlaylistItemRange { first, last } = range;
+        let prev = query_playlist_item(&mut db_conn, first)?
+            .ok_or_else(|| anyhow!("playlist item not found"))?
+            .prev;
+        let next = query_playlist_item(&mut db_conn, last)?
+            .ok_or_else(|| anyhow!("playlist item not found"))?
+            .next;
+        if let Some(prev) = prev {
+            let prev_prev = query_playlist_item(&mut db_conn, prev)?
+                .ok_or_else(|| anyhow!("playlist item not found"))?
+                .prev;
+            update_playlist_item_prev_and_next_id(&mut db_conn, prev, Some(last), next)?;
+            update_playlist_item_next_id(&mut db_conn, last, Some(prev))?;
+            update_playlist_item_prev_id(&mut db_conn, first, prev_prev)?;
+            if let Some(prev_prev) = prev_prev {
+                update_playlist_item_next_id(&mut db_conn, prev_prev, Some(first))?;
+            } else {
+                update_playlist_first_item(&mut db_conn, playlist_id, Some(first))?;
+            }
+            if let Some(next) = next {
+                update_playlist_item_prev_id(&mut db_conn, next, Some(prev))?;
+            } else {
+                update_playlist_last_item(&mut db_conn, playlist_id, Some(prev))?;
+            }
+        }
+    }
+    app.refresh_playlist(playlist_id).await;
+    Ok(())
 }

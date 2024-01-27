@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use self::app::AppState;
 use anyhow::{Context, Result};
 use axum::{
@@ -5,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     Router,
 };
+use thiserror::Error;
 
 pub mod app;
 mod playlist;
@@ -20,7 +23,8 @@ pub async fn create_app_router() -> Result<Router> {
 }
 
 type ResponseResult<T> = Result<T, ResponseAnyhowError>;
-struct ResponseAnyhowError(anyhow::Error);
+
+pub struct ResponseAnyhowError(anyhow::Error);
 
 impl<E> From<E> for ResponseAnyhowError
 where

@@ -91,7 +91,7 @@ impl Render for MediaListId {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, FromSqlRow, Serialize)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default, FromSqlRow, Serialize)]
 pub struct DurationWrapper(pub Duration);
 
 impl AsExpression<Integer> for DurationWrapper {
@@ -160,29 +160,36 @@ impl FromSql<Text, Sqlite> for MediaIdList {
     }
 }
 
-pub enum MediaIds {
-    Single {
-        id: MediaId,
-    },
-    Multiple {
-        id: MediaListId,
-        medias: MediaIdList,
-    },
+pub enum MediaOrMediaList {
+    Media(Media),
+    MediaList(MediaList),
 }
-impl MediaIds {
-    pub fn new_single(id: MediaId) -> Self {
-        Self::Single { id }
-    }
 
-    pub fn new_multiple(id: MediaListId, medias: MediaIdList) -> Self {
-        Self::Multiple { id, medias }
-    }
-
-    pub fn media_ids(self) -> Vec<MediaId> {
+impl MediaOrMediaList {
+    pub fn media_ids(self) -> Box<[MediaId]> {
         match self {
-            Self::Single { id } => vec![id],
-            Self::Multiple { medias, .. } => medias.0,
+            Self::Media(media) => [media.id].into(),
+            Self::MediaList(media_list) => media_list.media_ids.0.into(),
         }
+    }
+
+    pub fn total_duration(&self) -> Duration {
+        match self {
+            Self::Media(media) => media.duration.as_ref().cloned().unwrap_or_default().0,
+            Self::MediaList(media_list) => media_list.total_duration.0.clone(),
+        }
+    }
+}
+
+impl From<Media> for MediaOrMediaList {
+    fn from(value: Media) -> Self {
+        Self::Media(value)
+    }
+}
+
+impl From<MediaList> for MediaOrMediaList {
+    fn from(value: MediaList) -> Self {
+        Self::MediaList(value)
     }
 }
 
@@ -195,6 +202,7 @@ pub struct Media {
     pub artist: String,
     pub duration: Option<DurationWrapper>,
     pub url: String,
+    pub add_timestamp: PrimitiveDateTime,
     pub media_type: String,
 }
 
@@ -208,6 +216,7 @@ pub struct MediaList {
     pub media_ids: MediaIdList,
     pub url: String,
     pub add_timestamp: PrimitiveDateTime,
+    pub total_duration: DurationWrapper,
 }
 
 #[derive(Insertable)]
@@ -227,6 +236,7 @@ pub struct NewMediaList<'a> {
     pub artist: Cow<'a, str>,
     pub media_ids: Cow<'a, str>,
     pub url: Cow<'a, str>,
+    pub total_duration: i32,
 }
 
 pub fn query_media_with_id(
@@ -283,27 +293,21 @@ pub fn query_media_list_with_url(
     }
 }
 
-pub fn insert_media(db_conn: &mut SqliteConnection, media: NewMedia) -> Result<MediaId> {
+pub fn insert_media(db_conn: &mut SqliteConnection, media: NewMedia) -> Result<Media> {
     use crate::schema::medias::dsl::*;
-    Ok(MediaId(
-        diesel::insert_into(medias)
-            .values(media)
-            .returning(id)
-            .get_result(db_conn)
-            .context("unable to insert medias to DB")?,
-    ))
+    Ok(diesel::insert_into(medias)
+        .values(media)
+        .get_result(db_conn)
+        .context("unable to insert medias to DB")?)
 }
 
 pub fn insert_media_list(
     db_conn: &mut SqliteConnection,
     media_list: NewMediaList,
-) -> Result<MediaListId> {
+) -> Result<MediaList> {
     use crate::schema::media_lists::dsl::*;
-    Ok(MediaListId(
-        diesel::insert_into(media_lists)
-            .values(media_list)
-            .returning(id)
-            .get_result(db_conn)
-            .context("unable to insert media list to DB")?,
-    ))
+    Ok(diesel::insert_into(media_lists)
+        .values(media_list)
+        .get_result(db_conn)
+        .context("unable to insert media list to DB")?)
 }

@@ -8,6 +8,7 @@ diesel::table! {
         media_ids -> Text,
         url -> Text,
         add_timestamp -> Timestamp,
+        total_duration -> Integer,
     }
 }
 
@@ -42,6 +43,8 @@ diesel::table! {
         last_playlist_item -> Nullable<Integer>,
         add_timestamp -> Timestamp,
         current_item -> Nullable<Integer>,
+        num_items -> Integer,
+        total_duration -> Integer,
     }
 }
 

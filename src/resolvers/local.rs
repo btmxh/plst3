@@ -132,6 +132,7 @@ pub async fn resolve_media_list(
                                 .context("unable to create url for directory")?
                                 .into(),
                             media_ids: "".into(),
+                            total_duration: 0,
                         },
                         vec![],
                     ));

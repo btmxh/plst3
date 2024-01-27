@@ -48,7 +48,7 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
             .query_pairs()
             .find(|(key, _)| key == "list")
             .map(|(_, value)| value);
-        if path == "playlist" && url.host_str() == Some("youtube.com") {
+        if path == "/playlist" && url.host_str() == Some("youtube.com") {
             if let Some(id) = list_id {
                 return YoutubeUrlParseResult::Playlist(id.into_owned().into());
             }
@@ -150,6 +150,17 @@ pub async fn resolve_media_list(
                     .unwrap_or("<empty youtube channel>".into()),
                 url: url.to_string().into(),
                 media_ids: "".into(),
+                total_duration: playlist
+                    .entries
+                    .as_ref()
+                    .map(|p| {
+                        p.iter()
+                            .filter_map(|video| video.duration.as_ref())
+                            .filter_map(|duration| duration.as_f64())
+                            .map(|seconds| seconds.round() as i32)
+                            .sum()
+                    })
+                    .unwrap_or_default(),
             },
             playlist
                 .entries

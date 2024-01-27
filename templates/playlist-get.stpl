@@ -5,8 +5,15 @@
 </div>
 <% } else { %>
 <div class="playlist-stats">
+  <span>
+  Num. of connected clients:
+  <%= total_clients %>
+  </span>
+  <br>
+  <span>
   Total duration:
   <%= fmt.duration(&total_duration) %>
+  </span>
 </div>
 
 <% for (index, (media, item)) in std::iter::zip(medias.iter(), items.iter()).enumerate().rev() { %>
@@ -17,7 +24,7 @@
   <div class="playlist-entry">
   <% } %>
     <div class="playlist-entry-content">
-      <input type="checkbox" name="playlist-item-<%= item.id %>" value="false">
+      <input type="checkbox" name="playlist-item-<%= item.id %>" value>
       <label for="playlist-item-<%= item.id %>">
         <% if current_id == Some(item.id) { %>
           <span style="color: rgb(12, 187, 0)">&gt;</span>
@@ -41,7 +48,7 @@
         <button class="link-button"
                 type="button"
                 style="display: inline;"
-                onclick=<%- "navigator.clipboard.writeText('TODO')" %>>
+                onclick="navigator.clipboard.writeText(event.target.previousElementSibling.href)">
           copy
         </button>
 
