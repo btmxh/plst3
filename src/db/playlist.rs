@@ -1,8 +1,8 @@
 use super::{
-    media::{DurationWrapper, Media, MediaId},
+    media::{DurationWrapper, MediaId},
     playlist_item::{
         insert_playlist_item, query_playlist_item, update_playlist_item_next_id,
-        update_playlist_item_prev_id, NewPlaylistItem, PlaylistItem, PlaylistItemId,
+        update_playlist_item_prev_id, NewPlaylistItem, PlaylistItemId,
     },
 };
 use anyhow::{anyhow, Context, Result};
@@ -16,7 +16,7 @@ use diesel::{
     ExpressionMethods, Queryable, Selectable, SelectableHelper, SqliteConnection,
 };
 use sailfish::runtime::Render;
-use std::{fmt::Display, ops::Add, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 use time::{Duration, PrimitiveDateTime};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression)]

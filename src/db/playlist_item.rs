@@ -14,7 +14,7 @@ use sailfish::runtime::Render;
 use time::PrimitiveDateTime;
 
 use super::{
-    media::{query_media_with_id, DurationWrapper, MediaId},
+    media::{query_media_with_id, MediaId},
     playlist::{
         update_playlist, update_playlist_current_item, update_playlist_first_item,
         update_playlist_last_item, PlaylistId,

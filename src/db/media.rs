@@ -176,7 +176,7 @@ impl MediaOrMediaList {
     pub fn total_duration(&self) -> Duration {
         match self {
             Self::Media(media) => media.duration.as_ref().cloned().unwrap_or_default().0,
-            Self::MediaList(media_list) => media_list.total_duration.0.clone(),
+            Self::MediaList(media_list) => media_list.total_duration.0,
         }
     }
 }
@@ -295,10 +295,10 @@ pub fn query_media_list_with_url(
 
 pub fn insert_media(db_conn: &mut SqliteConnection, media: NewMedia) -> Result<Media> {
     use crate::schema::medias::dsl::*;
-    Ok(diesel::insert_into(medias)
+    diesel::insert_into(medias)
         .values(media)
         .get_result(db_conn)
-        .context("unable to insert medias to DB")?)
+        .context("unable to insert medias to DB")
 }
 
 pub fn insert_media_list(
@@ -306,8 +306,8 @@ pub fn insert_media_list(
     media_list: NewMediaList,
 ) -> Result<MediaList> {
     use crate::schema::media_lists::dsl::*;
-    Ok(diesel::insert_into(media_lists)
+    diesel::insert_into(media_lists)
         .values(media_list)
         .get_result(db_conn)
-        .context("unable to insert media list to DB")?)
+        .context("unable to insert media list to DB")
 }

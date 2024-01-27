@@ -9,7 +9,7 @@ use crate::{
         establish_connection,
         media::{
             insert_media, insert_media_list, query_media_list_with_url, query_media_with_id,
-            query_media_with_url, Media, MediaId, MediaOrMediaList,
+            query_media_with_url, Media, MediaOrMediaList,
         },
         playlist::{query_playlist_from_id, update_playlist_current_item, PlaylistId},
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},

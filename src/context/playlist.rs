@@ -20,7 +20,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use axum::{
     body::Body,
-    extract::{FromRequest, Path, Query, State},
+    extract::{Path, Query, State},
     http::{Request, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{delete, get, patch, post, put},
@@ -31,7 +31,7 @@ use sailfish::TemplateOnce;
 use serde::Deserialize;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     sync::Arc,
 };
 use time::Duration;
