@@ -1,7 +1,14 @@
+use self::{
+    media::{MediaId, MediaListId},
+    playlist::PlaylistId,
+    playlist_item::PlaylistItemId,
+};
 use anyhow::{Context, Result};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use r2d2::Pool;
+use std::fmt::Display;
+use thiserror::Error;
 
 pub mod media;
 pub mod playlist;
@@ -22,34 +29,89 @@ pub fn establish_connection() -> Result<SqliteConnectionPool> {
         .expect("unable to run pending migrations");
     Ok(db_pool)
 }
-#[cfg(falseadad)]
-fn test() -> Result<()> {
-    dotenv().ok();
 
-    let db_url = env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
-    let mut db_conn = SqliteConnection::establish(&db_url)
-        .context("unable to establish connection to sqlite database")?;
+#[derive(Error, Debug)]
+pub enum ResourceQueryError {
+    #[error("{}", match .1 {
+        Some(id) => format!("{:?} not found with ID {}", .0, id),
+        None => format!("{:?} not found", .0)
+    })]
+    ResourceNotFound(ResourceType, Option<ResourceId>),
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] diesel::result::Error),
+}
+pub type ResourceQueryResult<T> = Result<T, ResourceQueryError>;
 
-    use crate::schema::medias::dsl::*;
-    diesel::insert_into(crate::schema::medias::table)
-        .values(&NewMedia {
-            title: "hello",
-            artist: "me",
-            duration: None,
-            metadata: "{}",
-            url: "https://youtu.be/sjfdsfkjds",
-        })
-        .execute(&mut db_conn)
-        .context("expect returning new media")?;
-
-    let results = medias
-        .filter(title.eq("hello"))
-        .select(Media::as_select())
-        .load(&mut db_conn)
-        .context("error loading medias")?;
-    for media in results {
-        println!("{media:?}");
+impl ResourceQueryError {
+    pub fn db_error_if_not_not_found(error: diesel::result::Error) -> Option<Self> {
+        match error {
+            diesel::result::Error::NotFound => None,
+            error => Some(Self::DatabaseError(error)),
+        }
     }
-    println!("Hello, world!");
-    Ok(())
+}
+
+#[derive(Debug)]
+pub enum ResourceType {
+    Media,
+    Playlist,
+    PlaylistItem,
+    MediaList,
+}
+
+#[derive(Debug)]
+pub struct ResourceId(pub i32);
+
+impl From<PlaylistId> for ResourceId {
+    fn from(value: PlaylistId) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<PlaylistId> for Option<ResourceId> {
+    fn from(value: PlaylistId) -> Self {
+        Some(ResourceId(value.0))
+    }
+}
+
+impl From<MediaId> for ResourceId {
+    fn from(value: MediaId) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<MediaId> for Option<ResourceId> {
+    fn from(value: MediaId) -> Self {
+        Some(ResourceId(value.0))
+    }
+}
+
+impl From<PlaylistItemId> for ResourceId {
+    fn from(value: PlaylistItemId) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<PlaylistItemId> for Option<ResourceId> {
+    fn from(value: PlaylistItemId) -> Self {
+        Some(ResourceId(value.0))
+    }
+}
+
+impl From<MediaListId> for ResourceId {
+    fn from(value: MediaListId) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<MediaListId> for Option<ResourceId> {
+    fn from(value: MediaListId) -> Self {
+        Some(ResourceId(value.0))
+    }
+}
+
+impl Display for ResourceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }

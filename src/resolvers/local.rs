@@ -100,16 +100,14 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
                         media_type: "local".into(),
                     })
                 }
-                Ok(_) => Err(MediaResolveError::InvalidResource),
-                Err(e) if e.kind() == ErrorKind::NotFound => {
-                    Err(MediaResolveError::ResourceNotFound)
-                }
+                Ok(_) => Err(MediaResolveError::InvalidMedia),
+                Err(e) if e.kind() == ErrorKind::NotFound => Err(MediaResolveError::MediaNotFound),
                 Err(e) => Err(MediaResolveError::FailedProcessing(e.into())),
             };
         }
     }
 
-    Err(MediaResolveError::InvalidResource)
+    Err(MediaResolveError::InvalidMedia)
 }
 
 pub async fn resolve_media_list(
@@ -137,14 +135,12 @@ pub async fn resolve_media_list(
                         vec![],
                     ));
                 }
-                Ok(_) => Err(MediaResolveError::InvalidResource),
-                Err(e) if e.kind() == ErrorKind::NotFound => {
-                    Err(MediaResolveError::ResourceNotFound)
-                }
+                Ok(_) => Err(MediaResolveError::InvalidMedia),
+                Err(e) if e.kind() == ErrorKind::NotFound => Err(MediaResolveError::MediaNotFound),
                 Err(e) => Err(MediaResolveError::FailedProcessing(e.into())),
             };
         }
     }
 
-    Err(MediaResolveError::InvalidResource)
+    Err(MediaResolveError::InvalidMedia)
 }

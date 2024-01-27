@@ -33,16 +33,11 @@
         <span class="playlist-index">
           <%= human_index %>.
         </span>
-        <% if let Some(media) = media { %>
         <span class="playlist-entry-title"> <%= media.title %> </span>
         -
         <span class="playlist-entry-artist"> <%= media.artist %> </span>
-        <% } else { %>
-        Media Not Found
-        <% } %>
       </label>
       <div class="playlist-utilities">
-        <% if let Some(media) = media { %>
         <a href=<%- media.url | dbg %> target="_blank">link</a>
 
         <button class="link-button"
@@ -55,12 +50,11 @@
         <a hx-patch="/playlist/goto/<%= item.id %>" hx-target="#diagnostics" hx-swap="afterbegin">
           goto
         </a>
-        <% } %>
       </div>
     </div> 
 
     <div class="playlist-media-duration">
-      <%= media.as_ref().and_then(|m| m.duration.as_ref()).map(|d| fmt.duration(d)).unwrap_or("unknown".to_owned()) %>
+      <%= media.duration.as_ref().map(|d| fmt.duration(d)).unwrap_or("unknown".to_owned()) %>
     </div>
   </div>
 <% } %>

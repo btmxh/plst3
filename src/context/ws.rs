@@ -11,10 +11,7 @@ use axum::{
     response::Response,
     routing::get,
 };
-use futures::{
-    stream::{SplitSink},
-    StreamExt,
-};
+use futures::{stream::SplitSink, StreamExt};
 
 use crate::db::playlist::PlaylistId;
 
@@ -63,6 +60,8 @@ async fn websocket_handler(
                 Ok(Message::Text(msg)) => {
                     app.handle_websocket_message(&msg, playlist_id, socket_id)
                         .await
+                        .map_err(|e| tracing::warn!("error handling websocket message: {e}"))
+                        .ok();
                 }
                 Err(err) => tracing::warn!("websocket error: {err}"),
                 _ => {}

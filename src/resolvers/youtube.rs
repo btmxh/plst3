@@ -122,8 +122,8 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
             url: url.to_string().into(),
             media_type: "yt".into(),
         }),
-        Ok(_) => Err(MediaResolveError::InvalidResource),
-        Err(youtube_dl::Error::Json(_)) => Err(MediaResolveError::ResourceNotFound),
+        Ok(_) => Err(MediaResolveError::InvalidMedia),
+        Err(youtube_dl::Error::Json(_)) => Err(MediaResolveError::MediaNotFound),
         Err(e) => Err(MediaResolveError::FailedProcessing(e.into())),
     }
 }
@@ -169,8 +169,8 @@ pub async fn resolve_media_list(
                 .map(|video| youtube_video_url(&video.id))
                 .collect(),
         )),
-        Ok(_) => Err(MediaResolveError::InvalidResource),
-        Err(youtube_dl::Error::Json(_)) => Err(MediaResolveError::ResourceNotFound),
+        Ok(_) => Err(MediaResolveError::InvalidMedia),
+        Err(youtube_dl::Error::Json(_)) => Err(MediaResolveError::MediaNotFound),
         Err(e) => Err(MediaResolveError::FailedProcessing(e.into())),
     }
 }

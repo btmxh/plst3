@@ -1,6 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use diesel::{
     deserialize::{FromSql, FromSqlRow},
     expression::AsExpression,
@@ -11,7 +11,10 @@ use diesel::{
     ExpressionMethods, Queryable, Selectable, SelectableHelper, SqliteConnection,
 };
 use sailfish::runtime::Render;
+use serde::{Deserialize, Serialize};
 use time::PrimitiveDateTime;
+
+use crate::db::{ResourceQueryError, ResourceType};
 
 use super::{
     media::{query_media_with_id, MediaId},
@@ -19,10 +22,14 @@ use super::{
         update_playlist, update_playlist_current_item, update_playlist_first_item,
         update_playlist_last_item, PlaylistId,
     },
+    ResourceQueryResult,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression, Serialize, Deserialize,
+)]
 #[diesel(sql_type = Integer)]
+#[serde(transparent)]
 pub struct PlaylistItemId(pub i32);
 
 impl FromSql<Integer, Sqlite> for PlaylistItemId {
@@ -86,59 +93,68 @@ pub struct NewPlaylistItem {
 pub fn query_playlist_item(
     db_conn: &mut SqliteConnection,
     item_id: PlaylistItemId,
-) -> Result<Option<PlaylistItem>> {
+) -> ResourceQueryResult<PlaylistItem> {
     use crate::schema::playlist_items::dsl::*;
     let mut matches: Vec<PlaylistItem> = playlist_items
         .filter(id.eq(item_id))
         .limit(1)
         .select(PlaylistItem::as_select())
-        .load(db_conn)
-        .context("unable to query playlist item from DB")?;
+        .load(db_conn)?;
     if matches.is_empty() {
-        Ok(None)
+        Err(ResourceQueryError::ResourceNotFound(
+            ResourceType::PlaylistItem,
+            item_id.into(),
+        ))
     } else {
-        Ok(Some(matches.swap_remove(0)))
+        Ok(matches.swap_remove(0))
     }
 }
 
 pub fn insert_playlist_item(
     db_conn: &mut SqliteConnection,
     item: NewPlaylistItem,
-) -> Result<PlaylistItemId> {
+) -> Result<PlaylistItemId, diesel::result::Error> {
     use crate::schema::playlist_items::dsl::*;
     diesel::insert_into(playlist_items)
         .values(item)
         .returning(id)
         .get_result(db_conn)
-        .context("unable to insert playlist item to DB")
 }
 
 pub fn update_playlist_item_next_id(
     db_conn: &mut SqliteConnection,
     item_id: PlaylistItemId,
     next_id: Option<PlaylistItemId>,
-) -> Result<()> {
+) -> ResourceQueryResult<()> {
     use crate::schema::playlist_items::dsl::*;
     diesel::update(playlist_items)
         .filter(id.eq(item_id))
         .set(next.eq(next_id))
         .execute(db_conn)
-        .context("unable to update playlist item next id")
         .map(|_| {})
+        .map_err(|e| {
+            ResourceQueryError::db_error_if_not_not_found(e).unwrap_or_else(|| {
+                ResourceQueryError::ResourceNotFound(ResourceType::PlaylistItem, item_id.into())
+            })
+        })
 }
 
 pub fn update_playlist_item_prev_id(
     db_conn: &mut SqliteConnection,
     item_id: PlaylistItemId,
     prev_id: Option<PlaylistItemId>,
-) -> Result<()> {
+) -> ResourceQueryResult<()> {
     use crate::schema::playlist_items::dsl::*;
     diesel::update(playlist_items)
         .filter(id.eq(item_id))
         .set(prev.eq(prev_id))
         .execute(db_conn)
-        .context("unable to update playlist item next id")
         .map(|_| {})
+        .map_err(|e| {
+            ResourceQueryError::db_error_if_not_not_found(e).unwrap_or_else(|| {
+                ResourceQueryError::ResourceNotFound(ResourceType::PlaylistItem, item_id.into())
+            })
+        })
 }
 
 pub fn update_playlist_item_prev_and_next_id(
@@ -146,22 +162,25 @@ pub fn update_playlist_item_prev_and_next_id(
     item_id: PlaylistItemId,
     prev_id: Option<PlaylistItemId>,
     next_id: Option<PlaylistItemId>,
-) -> Result<()> {
+) -> ResourceQueryResult<()> {
     use crate::schema::playlist_items::dsl::*;
     diesel::update(playlist_items)
         .filter(id.eq(item_id))
         .set((prev.eq(prev_id), next.eq(next_id)))
         .execute(db_conn)
-        .context("unable to update playlist item next id")
         .map(|_| {})
+        .map_err(|e| {
+            ResourceQueryError::db_error_if_not_not_found(e).unwrap_or_else(|| {
+                ResourceQueryError::ResourceNotFound(ResourceType::PlaylistItem, item_id.into())
+            })
+        })
 }
 
 pub fn remove_playlist_item(
     db_conn: &mut SqliteConnection,
     item_id: PlaylistItemId,
-) -> Result<bool> {
-    let item =
-        query_playlist_item(db_conn, item_id)?.ok_or_else(|| anyhow!("playlist item not found"))?;
+) -> ResourceQueryResult<bool> {
+    let item = query_playlist_item(db_conn, item_id)?;
     if let Some(prev) = item.prev {
         update_playlist_item_next_id(db_conn, prev, item.next)?;
     } else {
@@ -172,8 +191,7 @@ pub fn remove_playlist_item(
     } else {
         update_playlist_last_item(db_conn, item.playlist_id, item.prev)?;
     }
-    let media =
-        query_media_with_id(db_conn, item.media_id)?.ok_or_else(|| anyhow!("media not found"))?;
+    let media = query_media_with_id(db_conn, item.media_id)?;
     let playlist = update_playlist(
         db_conn,
         item.playlist_id,
@@ -190,7 +208,11 @@ pub fn remove_playlist_item(
         diesel::delete(playlist_items)
             .filter(id.eq_all(item_id))
             .execute(db_conn)
-            .context("unable to delete playlist item")?;
+            .map_err(|e| {
+                ResourceQueryError::db_error_if_not_not_found(e).unwrap_or_else(|| {
+                    ResourceQueryError::ResourceNotFound(ResourceType::PlaylistItem, item_id.into())
+                })
+            })?;
     }
     Ok(media_changed)
 }

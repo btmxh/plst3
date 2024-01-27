@@ -14,9 +14,9 @@ pub enum MediaResolveError {
     #[error("Unsupported url")]
     UnsupportedUrl,
     #[error("Invalid resource referenced by url")]
-    InvalidResource,
+    InvalidMedia,
     #[error("Resource referenced by url not found")]
-    ResourceNotFound,
+    MediaNotFound,
 }
 
 pub async fn normalize_media_url(url: &str) -> Result<Url, url::ParseError> {
@@ -37,8 +37,8 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
                     let resolver = stringify!($resolver);
                     tracing::warn!("error resolving media by {resolver} resolver: {e}");
                     match &e {
-                        MediaResolveError::ResourceNotFound => not_found.push(resolver),
-                        MediaResolveError::InvalidResource => invalid.push(resolver),
+                        MediaResolveError::MediaNotFound => not_found.push(resolver),
+                        MediaResolveError::InvalidMedia => invalid.push(resolver),
                         _ => return Err(e),
                     };
                 }
@@ -50,9 +50,9 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
     resolve!(youtube);
 
     if invalid.is_empty() {
-        Err(MediaResolveError::InvalidResource)
+        Err(MediaResolveError::InvalidMedia)
     } else if not_found.is_empty() {
-        Err(MediaResolveError::ResourceNotFound)
+        Err(MediaResolveError::MediaNotFound)
     } else {
         unreachable!()
     }
@@ -70,8 +70,8 @@ pub async fn resolve_media_list(
                     let resolver = stringify!($resolver);
                     tracing::warn!("error resolving media list by {resolver} resolver: {e}");
                     match &e {
-                        MediaResolveError::ResourceNotFound => not_found.push(resolver),
-                        MediaResolveError::InvalidResource => invalid.push(resolver),
+                        MediaResolveError::MediaNotFound => not_found.push(resolver),
+                        MediaResolveError::InvalidMedia => invalid.push(resolver),
                         _ => return Err(e),
                     };
                 }
@@ -83,9 +83,9 @@ pub async fn resolve_media_list(
     resolve!(youtube);
 
     if invalid.is_empty() {
-        Err(MediaResolveError::InvalidResource)
+        Err(MediaResolveError::InvalidMedia)
     } else if not_found.is_empty() {
-        Err(MediaResolveError::ResourceNotFound)
+        Err(MediaResolveError::MediaNotFound)
     } else {
         unreachable!()
     }

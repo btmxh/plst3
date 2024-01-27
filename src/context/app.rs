@@ -13,11 +13,11 @@ use crate::{
         },
         playlist::{query_playlist_from_id, update_playlist_current_item, PlaylistId},
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
-        SqliteConnectionPool,
+        ResourceQueryError, ResourceQueryResult, SqliteConnectionPool,
     },
     resolvers::{normalize_media_url, resolve_media, resolve_media_list, MediaResolveError},
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::{extract::ws::Message, Router};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
 use futures::SinkExt;
@@ -106,7 +106,7 @@ impl SocketSinkContainer {
 #[derive(Error, Debug)]
 pub enum FetchMediaError {
     #[error("Database error: {0}")]
-    DatabaseError(anyhow::Error),
+    DatabaseError(#[from] diesel::result::Error),
     #[error("Resolve error: {0}")]
     ResolveError(MediaResolveError),
     #[error("Invalid url")]
@@ -174,10 +174,12 @@ impl AppState {
                     self.playpause(playlist_id).await;
                 }
                 MediaControlEvent::Next => {
-                    self.next(playlist_id).await?;
+                    let mut db_conn = self.acquire_db_connection()?;
+                    self.next(&mut db_conn, playlist_id).await?;
                 }
                 MediaControlEvent::Previous => {
-                    self.prev(playlist_id).await?;
+                    let mut db_conn = self.acquire_db_connection()?;
+                    self.prev(&mut db_conn, playlist_id).await?;
                 }
                 MediaControlEvent::OpenUri(_) => todo!(),
                 _ => {}
@@ -215,10 +217,8 @@ impl AppState {
 
     pub fn acquire_db_connection(
         &self,
-    ) -> anyhow::Result<PooledConnection<ConnectionManager<SqliteConnection>>> {
-        self.db_pool
-            .get()
-            .context("unable to acquire DB connection")
+    ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, r2d2::Error> {
+        self.db_pool.get()
     }
 
     pub async fn fetch_media(
@@ -229,10 +229,12 @@ impl AppState {
         let media_url = normalize_media_url(media_url)
             .await
             .map_err(FetchMediaError::InvalidUrl)?;
-        if let Some(media) =
-            query_media_with_url(db_conn, &media_url).map_err(FetchMediaError::DatabaseError)?
-        {
-            return Ok(media);
+        match query_media_with_url(db_conn, &media_url) {
+            Ok(media) => return Ok(media),
+            Err(ResourceQueryError::DatabaseError(e)) => {
+                return Err(FetchMediaError::DatabaseError(e))
+            }
+            _ => {}
         }
 
         let media = resolve_media(&media_url)
@@ -250,15 +252,19 @@ impl AppState {
             .await
             .map_err(FetchMediaError::InvalidUrl)?;
         tracing::info!("fetching media with url: {media_url}");
-        if let Some(media) =
-            query_media_with_url(db_conn, &media_url).map_err(FetchMediaError::DatabaseError)?
-        {
-            return Ok(media.into());
+        match query_media_with_url(db_conn, &media_url) {
+            Ok(media) => return Ok(media.into()),
+            Err(ResourceQueryError::DatabaseError(e)) => {
+                return Err(FetchMediaError::DatabaseError(e))
+            }
+            _ => {}
         }
-        if let Some(media_list) = query_media_list_with_url(db_conn, &media_url)
-            .map_err(FetchMediaError::DatabaseError)?
-        {
-            return Ok(media_list.into());
+        match query_media_list_with_url(db_conn, &media_url) {
+            Ok(media_list) => return Ok(media_list.into()),
+            Err(ResourceQueryError::DatabaseError(e)) => {
+                return Err(FetchMediaError::DatabaseError(e))
+            }
+            _ => {}
         }
 
         let mut unsupported = false;
@@ -274,8 +280,8 @@ impl AppState {
                 return Err(FetchMediaError::ResolveError(e))
             }
             Err(MediaResolveError::UnsupportedUrl) => unsupported = true,
-            Err(MediaResolveError::InvalidResource) => invalid = true,
-            Err(MediaResolveError::ResourceNotFound) => not_found = true,
+            Err(MediaResolveError::InvalidMedia) => invalid = true,
+            Err(MediaResolveError::MediaNotFound) => not_found = true,
             _ => {}
         };
 
@@ -300,18 +306,18 @@ impl AppState {
                 return Err(FetchMediaError::ResolveError(e))
             }
             Err(MediaResolveError::UnsupportedUrl) => unsupported = true,
-            Err(MediaResolveError::InvalidResource) => invalid = true,
-            Err(MediaResolveError::ResourceNotFound) => not_found = true,
+            Err(MediaResolveError::InvalidMedia) => invalid = true,
+            Err(MediaResolveError::MediaNotFound) => not_found = true,
             _ => {}
         };
 
         if not_found {
             Err(FetchMediaError::ResolveError(
-                MediaResolveError::ResourceNotFound,
+                MediaResolveError::MediaNotFound,
             ))
         } else if invalid {
             Err(FetchMediaError::ResolveError(
-                MediaResolveError::InvalidResource,
+                MediaResolveError::InvalidMedia,
             ))
         } else if unsupported {
             Err(FetchMediaError::ResolveError(
@@ -486,27 +492,28 @@ impl AppState {
         self.send_message(playlist_id, message).await
     }
 
-    pub async fn get_current_item(
+    pub fn get_current_item(
         db_conn: &mut SqliteConnection,
         playlist_id: PlaylistId,
-    ) -> Result<Option<PlaylistItem>> {
-        Ok(query_playlist_from_id(db_conn, playlist_id)
-            .context("unable to query playlist")?
-            .and_then(|p| p.current_item)
-            .map(|item_id| query_playlist_item(db_conn, item_id))
-            .transpose()?
-            .flatten())
+    ) -> ResourceQueryResult<Option<PlaylistItem>> {
+        let item_id = query_playlist_from_id(db_conn, playlist_id)?.current_item;
+        if let Some(item_id) = item_id {
+            Ok(Some(query_playlist_item(db_conn, item_id)?))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn get_current_media(
         db_conn: &mut SqliteConnection,
         playlist_id: PlaylistId,
-    ) -> Result<Option<Media>> {
-        Ok(Self::get_current_item(db_conn, playlist_id)
-            .await?
-            .map(|item| query_media_with_id(db_conn, item.media_id))
-            .transpose()?
-            .flatten())
+    ) -> ResourceQueryResult<Option<Media>> {
+        let item = Self::get_current_item(db_conn, playlist_id)?;
+        if let Some(item) = item {
+            Ok(Some(query_media_with_id(db_conn, item.media_id)?))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn set_playlist_item_as_current(
@@ -514,56 +521,50 @@ impl AppState {
         db_conn: &mut SqliteConnection,
         playlist_id: Option<PlaylistId>,
         item_id: PlaylistItemId,
-    ) -> Result<()> {
+    ) -> ResourceQueryResult<()> {
         let playlist_id = match playlist_id {
             Some(id) => id,
-            None => {
-                query_playlist_item(db_conn, item_id)
-                    .context("unable to query playlist item")?
-                    .ok_or_else(|| anyhow!("playlist item not found"))?
-                    .playlist_id
-            }
+            None => query_playlist_item(db_conn, item_id)?.playlist_id,
         };
-        update_playlist_current_item(db_conn, playlist_id, Some(item_id))
-            .context("unable to update playlist current item")?;
+        update_playlist_current_item(db_conn, playlist_id, Some(item_id))?;
         self.media_changed(playlist_id).await;
         Ok(())
     }
 
-    pub async fn next(&self, playlist_id: PlaylistId) -> Result<()> {
-        let mut db_conn = self.acquire_db_connection()?;
-        if let Some(item) = Self::get_current_item(&mut db_conn, playlist_id)
-            .await
-            .context("unable to get current item of playlist")?
-            .and_then(|item| item.next)
-        {
-            self.set_playlist_item_as_current(&mut db_conn, Some(playlist_id), item)
-                .await?;
-        } else if let Some(item) = query_playlist_from_id(&mut db_conn, playlist_id)
-            .context("unable to query playlist")?
-            .and_then(|p| p.first_playlist_item)
-        {
-            self.set_playlist_item_as_current(&mut db_conn, Some(playlist_id), item)
-                .await?;
+    pub async fn next(
+        &self,
+        db_conn: &mut SqliteConnection,
+        playlist_id: PlaylistId,
+    ) -> ResourceQueryResult<()> {
+        if let Some(current_item) = Self::get_current_item(db_conn, playlist_id)? {
+            if let Some(next) = current_item.next {
+                self.set_playlist_item_as_current(db_conn, Some(playlist_id), next)
+                    .await?;
+            } else if let Some(item) =
+                query_playlist_from_id(db_conn, playlist_id)?.first_playlist_item
+            {
+                self.set_playlist_item_as_current(db_conn, Some(playlist_id), item)
+                    .await?;
+            }
         }
         Ok(())
     }
 
-    pub async fn prev(&self, playlist_id: PlaylistId) -> Result<()> {
-        let mut db_conn = self.acquire_db_connection()?;
-        if let Some(item) = Self::get_current_item(&mut db_conn, playlist_id)
-            .await
-            .context("unable to get current item of playlist")?
-            .and_then(|item| item.prev)
-        {
-            self.set_playlist_item_as_current(&mut db_conn, Some(playlist_id), item)
-                .await?;
-        } else if let Some(item) = query_playlist_from_id(&mut db_conn, playlist_id)
-            .context("unable to query playlist")?
-            .and_then(|p| p.last_playlist_item)
-        {
-            self.set_playlist_item_as_current(&mut db_conn, Some(playlist_id), item)
-                .await?;
+    pub async fn prev(
+        &self,
+        db_conn: &mut SqliteConnection,
+        playlist_id: PlaylistId,
+    ) -> ResourceQueryResult<()> {
+        if let Some(current_item) = Self::get_current_item(db_conn, playlist_id)? {
+            if let Some(prev) = current_item.prev {
+                self.set_playlist_item_as_current(db_conn, Some(playlist_id), prev)
+                    .await?;
+            } else if let Some(item) =
+                query_playlist_from_id(db_conn, playlist_id)?.last_playlist_item
+            {
+                self.set_playlist_item_as_current(db_conn, Some(playlist_id), item)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -573,7 +574,8 @@ impl AppState {
         message: &str,
         playlist_id: PlaylistId,
         socket_id: SocketId,
-    ) {
+    ) -> Result<()> {
+        let mut db_conn = self.acquire_db_connection()?;
         match message {
             "next" => {
                 if self
@@ -584,16 +586,14 @@ impl AppState {
                     .map(|sockets| sockets.socket_done(socket_id))
                     .unwrap_or_default()
                 {
-                    self.next(playlist_id)
-                        .await
-                        .map_err(|e| tracing::warn!("unable to go to next media: {e}"))
-                        .ok();
+                    self.next(&mut db_conn, playlist_id).await?;
                 }
             }
             "play" => self.play(playlist_id).await,
             "pause" => self.pause(playlist_id).await,
             m => tracing::warn!("unrecognizable message: {m}"),
         }
+        Ok(())
     }
 
     pub async fn get_num_clients(&self, playlist_id: PlaylistId) -> usize {

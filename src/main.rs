@@ -4,7 +4,6 @@ use context::create_app_router;
 
 use dotenvy::dotenv;
 
-
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 

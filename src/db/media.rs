@@ -1,7 +1,8 @@
-use std::{borrow::Cow, fmt::Display, ops::Deref, str::FromStr};
-
-use crate::schema::{media_lists, medias};
-use anyhow::{Context, Result};
+use crate::{
+    db::{ResourceQueryError, ResourceType},
+    schema::{media_lists, medias},
+};
+use anyhow::Result;
 use diesel::{
     deserialize::{FromSql, FromSqlRow},
     expression::AsExpression,
@@ -11,12 +12,18 @@ use diesel::{
     sqlite::Sqlite,
 };
 use sailfish::runtime::Render;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::{borrow::Cow, fmt::Display, ops::Deref, str::FromStr};
 use time::{Duration, PrimitiveDateTime};
 use url::Url;
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, AsExpression, FromSqlRow, Serialize)]
+use super::ResourceQueryResult;
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression, Serialize, Deserialize,
+)]
 #[diesel(sql_type = Integer)]
+#[serde(transparent)]
 pub struct MediaId(pub i32);
 
 impl FromSql<Integer, Sqlite> for MediaId {
@@ -56,8 +63,11 @@ impl FromStr for MediaId {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, AsExpression, FromSqlRow)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Hash, FromSqlRow, AsExpression, Serialize, Deserialize,
+)]
 #[diesel(sql_type = Integer)]
+#[serde(transparent)]
 pub struct MediaListId(pub i32);
 
 impl FromSql<Integer, Sqlite> for MediaListId {
@@ -242,72 +252,79 @@ pub struct NewMediaList<'a> {
 pub fn query_media_with_id(
     db_conn: &mut SqliteConnection,
     media_id: MediaId,
-) -> Result<Option<Media>> {
+) -> ResourceQueryResult<Media> {
     use crate::schema::medias::dsl::*;
     let mut matches: Vec<Media> = medias
         .filter(id.eq(media_id))
         .limit(1)
         .select(Media::as_select())
-        .load(db_conn)
-        .context("error fetching media")?;
+        .load(db_conn)?;
     if matches.is_empty() {
-        Ok(None)
+        Err(ResourceQueryError::ResourceNotFound(
+            ResourceType::Media,
+            media_id.into(),
+        ))
     } else {
-        Ok(Some(matches.swap_remove(0)))
+        Ok(matches.swap_remove(0))
     }
 }
 
 pub fn query_media_with_url(
     db_conn: &mut SqliteConnection,
     media_url: &Url,
-) -> Result<Option<Media>> {
+) -> ResourceQueryResult<Media> {
     use crate::schema::medias::dsl::*;
     let mut matches: Vec<Media> = medias
         .filter(url.eq(media_url.to_string()))
         .limit(1)
         .select(Media::as_select())
-        .load(db_conn)
-        .context("error fetching media")?;
+        .load(db_conn)?;
     if matches.is_empty() {
-        Ok(None)
+        Err(ResourceQueryError::ResourceNotFound(
+            ResourceType::Media,
+            None,
+        ))
     } else {
-        Ok(Some(matches.swap_remove(0)))
+        Ok(matches.swap_remove(0))
     }
 }
 
 pub fn query_media_list_with_url(
     db_conn: &mut SqliteConnection,
     media_list_url: &Url,
-) -> Result<Option<MediaList>> {
+) -> ResourceQueryResult<MediaList> {
     use crate::schema::media_lists::dsl::*;
     let mut matches: Vec<MediaList> = media_lists
         .filter(url.eq(media_list_url.to_string()))
         .limit(1)
         .select(MediaList::as_select())
-        .load(db_conn)
-        .context("error fetching media list")?;
+        .load(db_conn)?;
     if matches.is_empty() {
-        Ok(None)
+        Err(ResourceQueryError::ResourceNotFound(
+            ResourceType::MediaList,
+            None,
+        ))
     } else {
-        Ok(Some(matches.swap_remove(0)))
+        Ok(matches.swap_remove(0))
     }
 }
 
-pub fn insert_media(db_conn: &mut SqliteConnection, media: NewMedia) -> Result<Media> {
+pub fn insert_media(
+    db_conn: &mut SqliteConnection,
+    media: NewMedia,
+) -> Result<Media, diesel::result::Error> {
     use crate::schema::medias::dsl::*;
     diesel::insert_into(medias)
         .values(media)
         .get_result(db_conn)
-        .context("unable to insert medias to DB")
 }
 
 pub fn insert_media_list(
     db_conn: &mut SqliteConnection,
     media_list: NewMediaList,
-) -> Result<MediaList> {
+) -> Result<MediaList, diesel::result::Error> {
     use crate::schema::media_lists::dsl::*;
     diesel::insert_into(media_lists)
         .values(media_list)
         .get_result(db_conn)
-        .context("unable to insert media list to DB")
 }
