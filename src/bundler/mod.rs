@@ -11,7 +11,11 @@ use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileI
 
 use crate::bundler::rsass::compile_scss;
 
-use self::{asset::copy_assets, rsass::compile_all_scss, swc::compile_scripts};
+use self::{
+    asset::{copy_assets, create_asset_link},
+    rsass::compile_all_scss,
+    swc::compile_scripts,
+};
 
 mod asset;
 mod rsass;
@@ -61,7 +65,7 @@ pub async fn launch_bundler() -> Result<Bundler> {
                                 compile_scss(&src_path, &dst_path).context("failed attempting to transpiling scss")
                             }
                             _ => {
-                                std::fs::copy(&src_path, &dst_path).context("error copying css file").map(|_| {})
+                                create_asset_link(&src_path, &dst_path).context("error copying css file").map(|_| {})
                             }
                         }.map_err(|e| {
                             tracing::warn!("{e}");
