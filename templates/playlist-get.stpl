@@ -24,7 +24,7 @@
   <div class="playlist-entry">
   <% } %>
     <div class="playlist-entry-content">
-      <input type="checkbox" name="playlist-item-<%= item.id %>" value>
+      <input type="checkbox" name="playlist-item-<%= item.id %>" value <%= if ids.contains(&item.id) {"checked"} else {""} %>>
       <label for="playlist-item-<%= item.id %>">
         <% if current_id == Some(item.id) { %>
           <span style="color: rgb(12, 187, 0)">&gt;</span>

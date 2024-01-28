@@ -7,3 +7,4 @@
 <link rel="stylesheet" href="/styles/sidebar-nav.css">
 <script src="/scripts/transition-fix.js"></script>
 <script src="/scripts/toggle-header.js" defer></script>
+<link rel="icon" type="image/png" href="/assets/plst.png">

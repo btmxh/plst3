@@ -26,8 +26,12 @@ use axum::{
 };
 use diesel::SqliteConnection;
 use sailfish::TemplateOnce;
-use serde::{Deserialize, Deserializer};
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use serde::{de, Deserialize, Deserializer};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use time::Duration;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
@@ -139,27 +143,60 @@ struct PlaylistGetTemplate {
     total_duration: Duration,
     total_clients: usize,
     fmt: Formatter,
+    ids: HashSet<PlaylistItemId>,
 }
 
-#[derive(Deserialize)]
 struct PlaylistGetArgs {
     from: Option<PlaylistItemId>,
-    #[serde(deserialize_with = "deserialize_limit", default = "default_limit")]
     limit: usize,
+    ids: HashSet<PlaylistItemId>,
 }
 
-fn default_limit() -> usize {
-    1000
+impl<'de> Deserialize<'de> for PlaylistGetArgs {
+    fn deserialize<D>(deserializer: D) -> std::prelude::v1::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(PlaylistGetArgsVisitor)
+    }
 }
 
-fn deserialize_limit<'de, D: Deserializer<'de>>(data: D) -> Result<usize, D::Error> {
-    let limit: usize = Deserialize::deserialize(data)?;
-    Ok(limit.clamp(1, 3000))
+struct PlaylistGetArgsVisitor;
+impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
+    type Value = PlaylistGetArgs;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a PlaylistGetArgs")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::MapAccess<'de>,
+    {
+        let mut args = PlaylistGetArgs {
+            from: None,
+            limit: 1000,
+            ids: HashSet::new(),
+        };
+        while let Some(key) = map.next_key::<Cow<'static, str>>()? {
+            if key == "from" {
+                args.from = Some(map.next_value()?);
+            } else if key == "limit" {
+                args.limit = map.next_value::<usize>()?.clamp(1, 3000);
+            } else if let Some(id) = key.strip_prefix("playlist-item-") {
+                if let Ok(id) = id.parse() {
+                    args.ids.insert(id);
+                }
+            }
+        }
+
+        Ok(args)
+    }
 }
 
 async fn playlist_get(
     Path(playlist_id): Path<i32>,
-    Query(PlaylistGetArgs { from, limit }): Query<PlaylistGetArgs>,
+    Query(PlaylistGetArgs { from, limit, ids }): Query<PlaylistGetArgs>,
     State(app): State<Arc<AppState>>,
 ) -> ResponseResult<Response> {
     let mut db_conn = app.acquire_db_connection()?;
@@ -199,6 +236,7 @@ async fn playlist_get(
         total_duration: playlist.total_duration.0,
         total_clients: app.get_num_clients(playlist.id).await,
         fmt: Formatter,
+        ids,
     };
 
     let html = template_args.render_once()?;
