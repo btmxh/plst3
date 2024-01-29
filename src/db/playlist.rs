@@ -124,31 +124,30 @@ fn append_to_playlist_single(
 pub fn append_to_playlist(
     db_conn: &mut SqliteConnection,
     playlist_id: PlaylistId,
-    mut prev: Option<PlaylistItemId>,
+    prev: Option<PlaylistItemId>,
     media_ids: &[MediaId],
     total_duration: Duration,
-) -> ResourceQueryResult<bool> {
-    if media_ids.is_empty() {
-        return Ok(false);
-    }
-
+) -> ResourceQueryResult<Vec<PlaylistItemId>> {
     let next = match prev {
         Some(id) => query_playlist_item(db_conn, id)?.next,
         None => query_playlist_from_id(db_conn, playlist_id)?.first_playlist_item,
     };
+    let mut item_ids = vec![];
     for media_id in media_ids.iter().cloned() {
-        prev = Some(append_to_playlist_single(
+        item_ids.push(append_to_playlist_single(
             db_conn,
             NewPlaylistItem {
                 playlist_id,
                 media_id,
-                prev,
+                prev: item_ids.last().cloned().or(prev),
                 next,
             },
         )?);
     }
-    update_playlist(db_conn, playlist_id, total_duration, media_ids.len() as i32)?;
-    Ok(true)
+    if !item_ids.is_empty() {
+        update_playlist(db_conn, playlist_id, total_duration, media_ids.len() as i32)?;
+    }
+    Ok(item_ids)
 }
 
 pub fn update_playlist_first_item(

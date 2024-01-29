@@ -1,0 +1,3 @@
+#!/bin/sh
+
+CURRENT_PLAYLIST=1 RUST_LOG=info RUST_BACKTRACE=1 cargo run

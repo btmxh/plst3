@@ -1,0 +1,25 @@
+[package]
+name = "bundler"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.79"
+ctrlc = { version = "3.4.2", features = ["termination"] }
+notify = "6.1.1"
+notify-debouncer-full = "0.3.1"
+pollster = { version = "0.3.0", features = ["macro"] }
+reqwest = "0.11.23"
+rsass = "0.28.8"
+swc = "0.271.1"
+swc_common = "0.33.14"
+swc_ecma_ast = "0.111.0"
+swc_ecma_codegen = "0.147.0"
+swc_ecma_parser = "0.142.0"
+swc_ecma_transforms_typescript = "0.187.1"
+swc_ecma_visit = "0.97.0"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+walkdir = "2.4.0"

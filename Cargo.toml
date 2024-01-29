@@ -1,3 +1,4 @@
+workspace = { members = ["bundler"] }
 [package]
 name = "plst3"
 version = "0.1.0"
@@ -13,22 +14,12 @@ diesel = { version = "2.1.4", features = ["sqlite", "r2d2", "time", "returning_c
 diesel_migrations = "2.1.0"
 dotenvy = "0.15.7"
 futures = { version = "0.3.30", default-features = false }
-notify = "6.1.1"
-notify-debouncer-full = "0.3.1"
+notify-rust = "4.10.0"
 r2d2 = "0.8.10"
-reqwest = "0.11.23"
-rsass = "0.28.8"
 sailfish = { version = "0.8.3", default-features = false, features = ["perf-inline", "config", "derive"] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 souvlaki = { version = "0.7.0", default-features = false, features = ["use_zbus"] }
-swc = "0.271.1"
-swc_common = "0.33.14"
-swc_ecma_ast = "0.111.0"
-swc_ecma_codegen = "0.147.0"
-swc_ecma_parser = "0.142.0"
-swc_ecma_transforms_typescript = "0.187.1"
-swc_ecma_visit = "0.97.0"
 thiserror = "1.0.56"
 time = { version = "0.3.31", features = ["serde"] }
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "fs"] }
@@ -37,5 +28,4 @@ tower-http = { version = "0.5.1", features = ["trace", "compression-gzip", "fs"]
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = "2.5.0"
-walkdir = "2.4.0"
 youtube_dl = { version = "0.9.0", features = ["tokio"] }

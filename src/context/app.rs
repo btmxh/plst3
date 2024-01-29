@@ -3,6 +3,7 @@ use super::{
     ssr::ssr_router,
     static_files::static_file_router,
     ws::{ws_router, SocketId, SocketSink},
+    ResponseResult,
 };
 use crate::{
     db::{
@@ -21,6 +22,7 @@ use anyhow::{Context, Result};
 use axum::{extract::ws::Message, Router};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
 use futures::SinkExt;
+use notify_rust::Notification;
 use r2d2::PooledConnection;
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 use std::{
@@ -160,7 +162,7 @@ impl AppState {
         Ok(app)
     }
 
-    async fn handle_event(&self, event: MediaControlEvent) -> Result<()> {
+    async fn handle_event(self: &Arc<Self>, event: MediaControlEvent) -> Result<()> {
         let state = self.media_state.lock().await.as_ref().cloned();
         if let Some(MediaControlState { playlist_id, .. }) = state {
             match event {
@@ -399,10 +401,7 @@ impl AppState {
                     })
                     .ok();
                 let mut db_conn = self.acquire_db_connection()?;
-                let media = Self::get_current_media(&mut db_conn, state.playlist_id)
-                    .await
-                    .ok()
-                    .flatten();
+                let media = Self::get_current_media(&mut db_conn, state.playlist_id).await?;
                 let media = media.as_ref();
                 controls
                     .set_metadata(MediaMetadata {
@@ -425,7 +424,11 @@ impl AppState {
         Ok(())
     }
 
-    pub async fn media_changed(&self, playlist_id: PlaylistId) {
+    pub async fn media_changed(
+        self: &Arc<Self>,
+        playlist_id: PlaylistId,
+        media: Option<&Media>,
+    ) -> Result<()> {
         if let Some(sockets) = self.sockets.lock().await.get_mut(&playlist_id) {
             sockets.reset();
         }
@@ -445,6 +448,10 @@ impl AppState {
                 })
                 .ok();
         }
+        if let Some(media) = media {
+            self.notify_playlist_item_change(playlist_id, &media);
+        }
+        Ok(())
     }
     pub async fn play(&self, playlist_id: PlaylistId) {
         if let Some(s) = self
@@ -517,25 +524,27 @@ impl AppState {
     }
 
     pub async fn set_playlist_item_as_current(
-        &self,
+        self: &Arc<Self>,
         db_conn: &mut SqliteConnection,
         playlist_id: Option<PlaylistId>,
         item_id: PlaylistItemId,
-    ) -> ResourceQueryResult<()> {
+    ) -> ResponseResult<()> {
         let playlist_id = match playlist_id {
             Some(id) => id,
             None => query_playlist_item(db_conn, item_id)?.playlist_id,
         };
         update_playlist_current_item(db_conn, playlist_id, Some(item_id))?;
-        self.media_changed(playlist_id).await;
+        let item = query_playlist_item(db_conn, item_id)?;
+        let media = query_media_with_id(db_conn, item.media_id)?;
+        self.media_changed(playlist_id, Some(&media)).await?;
         Ok(())
     }
 
     pub async fn next(
-        &self,
+        self: &Arc<Self>,
         db_conn: &mut SqliteConnection,
         playlist_id: PlaylistId,
-    ) -> ResourceQueryResult<()> {
+    ) -> ResponseResult<()> {
         if let Some(current_item) = Self::get_current_item(db_conn, playlist_id)? {
             if let Some(next) = current_item.next {
                 self.set_playlist_item_as_current(db_conn, Some(playlist_id), next)
@@ -551,10 +560,10 @@ impl AppState {
     }
 
     pub async fn prev(
-        &self,
+        self: &Arc<Self>,
         db_conn: &mut SqliteConnection,
         playlist_id: PlaylistId,
-    ) -> ResourceQueryResult<()> {
+    ) -> ResponseResult<()> {
         if let Some(current_item) = Self::get_current_item(db_conn, playlist_id)? {
             if let Some(prev) = current_item.prev {
                 self.set_playlist_item_as_current(db_conn, Some(playlist_id), prev)
@@ -570,7 +579,7 @@ impl AppState {
     }
 
     pub async fn handle_websocket_message(
-        &self,
+        self: &Arc<Self>,
         message: &str,
         playlist_id: PlaylistId,
         socket_id: SocketId,
@@ -603,5 +612,75 @@ impl AppState {
             .get(&playlist_id)
             .map(SocketSinkContainer::len)
             .unwrap_or_default()
+    }
+
+    pub fn notify_playlist_add(
+        self: &Arc<Self>,
+        playlist_id: PlaylistId,
+        medias: &MediaOrMediaList,
+        item_id: PlaylistItemId,
+    ) {
+        let body = match medias {
+            MediaOrMediaList::Media(media) => format!("{} - {}", media.artist, media.title),
+            MediaOrMediaList::MediaList(media_list) => {
+                format!(
+                    "{} - {}",
+                    media_list.title.as_deref().unwrap_or("No title"),
+                    media_list.artist.as_deref().unwrap_or("No artist")
+                )
+            }
+        };
+        let arc_self = self.clone();
+        tokio::task::spawn_blocking(move || {
+            match Notification::new()
+                .summary(&format!("Media added to playlist {playlist_id}"))
+                .body(&body)
+                .action("default", "Go to media")
+                .icon("/home/torani/dev/plst3/dist/assets/plst_notify.png")
+                .show()
+            {
+                Ok(n) => {
+                    n.wait_for_action(move |action| {
+                        if action == "default" {
+                            tokio::spawn(async move {
+                                if let Ok(mut db_conn) =
+                                    arc_self.acquire_db_connection().map_err(|e| {
+                                        tracing::warn!("unable to acquire db connection: {e}")
+                                    })
+                                {
+                                    tracing::info!("changing current media to item {item_id}");
+                                    arc_self
+                                        .set_playlist_item_as_current(
+                                            &mut db_conn,
+                                            Some(playlist_id),
+                                            item_id,
+                                        )
+                                        .await
+                                        .map_err(|e| {
+                                            tracing::warn!("unable to change current media: {e}")
+                                        })
+                                        .ok();
+                                }
+                            });
+                        }
+                    });
+                }
+                Err(err) => {
+                    tracing::warn!("unable to send notification for playlist media added: {err}")
+                }
+            }
+        });
+    }
+
+    pub fn notify_playlist_item_change(self: &Arc<Self>, playlist_id: PlaylistId, media: &Media) {
+        let body = format!("{} - {}", media.artist, media.title);
+        tokio::task::spawn_blocking(move || {
+            Notification::new()
+                .summary(&format!("Media changed in playlist {playlist_id}"))
+                .body(&body)
+                .icon("/home/torani/dev/plst3/dist/assets/plst_notify.png")
+                .show()
+                .ok()
+        });
     }
 }
