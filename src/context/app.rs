@@ -631,7 +631,7 @@ impl AppState {
             }
         };
         let arc_self = self.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             match Notification::new()
                 .summary(&format!("Media added to playlist {playlist_id}"))
                 .body(&body)
@@ -664,7 +664,6 @@ impl AppState {
                             });
                         }
                     });
-                    tracing::info!("???");
                 }
                 Err(err) => {
                     tracing::warn!("unable to send notification for playlist media added: {err}")
@@ -675,7 +674,7 @@ impl AppState {
 
     pub fn notify_playlist_item_change(self: &Arc<Self>, playlist_id: PlaylistId, media: &Media) {
         let body = format!("{} - {}", media.artist, media.title);
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             Notification::new()
                 .summary(&format!("Media changed in playlist {playlist_id}"))
                 .body(&body)
