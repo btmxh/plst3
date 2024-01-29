@@ -90,8 +90,12 @@ async fn playlist_add(
     .or(playlist.last_playlist_item);
     let total_duration = medias.total_duration();
     let media_ids = medias.media_ids();
-    append_to_playlist(&mut db_conn, playlist.id, pivot, &media_ids, total_duration)?;
-    app.refresh_playlist(playlist.id).await;
+    let item_ids =
+        append_to_playlist(&mut db_conn, playlist.id, pivot, &media_ids, total_duration)?;
+    if let Some(first_item_id) = item_ids.first() {
+        app.notify_playlist_add(playlist_id, &medias, *first_item_id);
+        app.refresh_playlist(playlist.id).await;
+    }
     Ok(())
 }
 
@@ -346,7 +350,7 @@ async fn playlist_delete(
 
     app.refresh_playlist(playlist_id).await;
     if media_changed {
-        app.media_changed(playlist_id).await;
+        app.media_changed(playlist_id, None).await?;
     }
 
     Ok(().into_response())

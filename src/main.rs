@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use bundler::launch_bundler;
 use context::create_app_router;
 
 use dotenvy::dotenv;
@@ -7,7 +6,6 @@ use dotenvy::dotenv;
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub mod bundler;
 pub mod context;
 pub mod db;
 pub mod resolvers;
@@ -20,10 +18,6 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
     dotenv().context("unable to load .env")?;
-
-    let _bundler = launch_bundler()
-        .await
-        .context("unable to launch web bundler");
 
     let app = create_app_router()
         .await

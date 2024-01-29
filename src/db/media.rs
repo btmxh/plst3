@@ -176,10 +176,10 @@ pub enum MediaOrMediaList {
 }
 
 impl MediaOrMediaList {
-    pub fn media_ids(self) -> Box<[MediaId]> {
+    pub fn media_ids(&self) -> Box<[MediaId]> {
         match self {
             Self::Media(media) => [media.id].into(),
-            Self::MediaList(media_list) => media_list.media_ids.0.into(),
+            Self::MediaList(media_list) => media_list.media_ids.0.clone().into(),
         }
     }
 
