@@ -92,7 +92,9 @@ async fn playlist_add(
     let media_ids = medias.media_ids();
     let item_ids =
         append_to_playlist(&mut db_conn, playlist.id, pivot, &media_ids, total_duration)?;
+    #[allow(unused)]
     if let Some(first_item_id) = item_ids.first() {
+        #[cfg(feature = "notifications")]
         app.notify_playlist_add(playlist_id, &medias, *first_item_id);
         app.refresh_playlist(playlist.id).await;
     }
@@ -100,12 +102,20 @@ async fn playlist_add(
 }
 
 async fn playlist_play(
-    Path(playlist_id): Path<i32>,
-    State(app): State<Arc<AppState>>,
-) -> ResponseResult<Cow<'static, str>> {
-    app.set_current_playlist(Some(PlaylistId(playlist_id)))
-        .await;
-    Ok(format!("Current playlist set to playlist id {playlist_id}").into())
+    #[cfg(feature = "media-controls")] Path(playlist_id): Path<i32>,
+    #[cfg(feature = "media-controls")] State(app): State<Arc<AppState>>,
+) -> ResponseResult<Response> {
+    #[cfg(feature = "media-controls")]
+    {
+        app.set_current_playlist(Some(PlaylistId(playlist_id)))
+            .await;
+        Ok(format!("Current playlist set to playlist id {playlist_id}").into_response())
+    }
+
+    #[cfg(not(feature = "media-controls"))]
+    {
+        Ok(StatusCode::METHOD_NOT_ALLOWED.into_response())
+    }
 }
 
 async fn playlist_new(

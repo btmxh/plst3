@@ -22,27 +22,29 @@ use anyhow::{Context, Result};
 use axum::{extract::ws::Message, Router};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
 use futures::SinkExt;
+#[cfg(feature = "notifications")]
 use notify_rust::Notification;
 use r2d2::PooledConnection;
+#[cfg(feature = "media-controls")]
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 use std::{
     collections::{hash_map::Entry, HashMap},
-    process::Command,
     sync::Arc,
-    thread::spawn,
-    time::Duration,
 };
 use thiserror::Error;
-use tokio::{runtime::Handle, sync::Mutex};
+use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 
 #[derive(Clone, Copy)]
 struct MediaControlState {
+    #[cfg(feature = "media-controls")]
     playlist_id: PlaylistId,
+    #[cfg(feature = "media-controls")]
     is_playing: bool,
 }
 
+#[cfg(feature = "media-controls")]
 impl MediaControlState {
     pub fn set_playing(&mut self, playing: bool) {
         self.is_playing = playing
@@ -57,7 +59,9 @@ impl MediaControlState {
 pub struct AppState {
     db_pool: SqliteConnectionPool,
     sockets: Mutex<HashMap<PlaylistId, SocketSinkContainer>>,
+    #[cfg(feature = "media-controls")]
     media_state: Mutex<Option<MediaControlState>>,
+    #[cfg(feature = "media-controls")]
     media_controls: Option<Mutex<MediaControls>>,
 }
 
@@ -117,6 +121,7 @@ pub enum FetchMediaError {
 
 impl AppState {
     pub async fn new() -> Result<Arc<Self>> {
+        #[cfg(feature = "media-controls")]
         let media_controls = MediaControls::new(PlatformConfig {
             dbus_name: "plst3",
             display_name: "plst3",
@@ -131,13 +136,16 @@ impl AppState {
             db_pool: establish_connection()
                 .context("unable to establish connection to database")?,
             sockets: Mutex::new(HashMap::new()),
+            #[cfg(feature = "media-controls")]
             media_state: Mutex::new(Self::media_control_state_env()),
+            #[cfg(feature = "media-controls")]
             media_controls,
         });
 
+        #[cfg(feature = "media-controls")]
         if let Some(controls) = app.media_controls.as_ref() {
             let app = app.clone();
-            let handle = Handle::current();
+            let handle = tokio::runtime::Handle::current();
             controls
                 .lock()
                 .await
@@ -157,11 +165,13 @@ impl AppState {
                 .ok();
         }
 
+        #[cfg(feature = "media-controls")]
         app.update_media_metadata().await.ok();
 
         Ok(app)
     }
 
+    #[cfg(feature = "media-controls")]
     async fn handle_event(self: &Arc<Self>, event: MediaControlEvent) -> Result<()> {
         let state = self.media_state.lock().await.as_ref().cloned();
         if let Some(MediaControlState { playlist_id, .. }) = state {
@@ -205,6 +215,7 @@ impl AppState {
             )
     }
 
+    #[cfg(feature = "media-controls")]
     fn media_control_state_env() -> Option<MediaControlState> {
         std::env::var("CURRENT_PLAYLIST")
             .ok()?
@@ -330,6 +341,7 @@ impl AppState {
         }
     }
 
+    #[cfg(feature = "media-controls")]
     pub async fn set_current_playlist(&self, id: Option<PlaylistId>) {
         *self.media_state.lock().await = id.map(|id| MediaControlState {
             playlist_id: id,
@@ -379,9 +391,10 @@ impl AppState {
         self.send_message(playlist_id, "refresh-playlist").await;
     }
 
+    #[cfg(feature = "i3-refresh")]
     fn trigger_wm_update() {
-        spawn(|| {
-            Command::new("killall")
+        tokio::task::spawn_blocking(|| {
+            std::process::Command::new("killall")
                 .arg("-USR1")
                 .arg("i3status")
                 .spawn()
@@ -389,6 +402,7 @@ impl AppState {
         });
     }
 
+    #[cfg(feature = "media-controls")]
     async fn update_media_metadata(&self) -> Result<()> {
         if let Some(controls) = self.media_controls.as_ref() {
             let mut controls = controls.lock().await;
@@ -410,13 +424,14 @@ impl AppState {
                         album: None,
                         cover_url: None,
                         duration: media.and_then(|m| m.duration).map(|d| {
-                            Duration::new(
+                            std::time::Duration::new(
                                 d.whole_seconds().max(0) as u64,
                                 d.subsec_nanoseconds().max(0) as u32,
                             )
                         }),
                     })
                     .ok();
+                #[cfg(feature = "i3-refresh")]
                 Self::trigger_wm_update();
             }
         }
@@ -427,12 +442,13 @@ impl AppState {
     pub async fn media_changed(
         self: &Arc<Self>,
         playlist_id: PlaylistId,
-        media: Option<&Media>,
+        #[allow(unused)] media: Option<&Media>,
     ) -> Result<()> {
         if let Some(sockets) = self.sockets.lock().await.get_mut(&playlist_id) {
             sockets.reset();
         }
         self.send_message(playlist_id, "media-changed").await;
+        #[cfg(feature = "media-controls")]
         if Some(playlist_id)
             == self
                 .media_state
@@ -448,38 +464,47 @@ impl AppState {
                 })
                 .ok();
         }
+        #[cfg(feature = "notifications")]
         if let Some(media) = media {
-            self.notify_playlist_item_change(playlist_id, &media);
+            self.notify_playlist_item_change(playlist_id, media);
         }
         Ok(())
     }
     pub async fn play(&self, playlist_id: PlaylistId) {
-        if let Some(s) = self
-            .media_state
-            .lock()
-            .await
-            .as_mut()
-            .filter(|s| s.playlist_id == playlist_id)
+        #[cfg(feature = "media-controls")]
         {
-            s.set_playing(true)
+            if let Some(s) = self
+                .media_state
+                .lock()
+                .await
+                .as_mut()
+                .filter(|s| s.playlist_id == playlist_id)
+            {
+                s.set_playing(true)
+            }
+            self.update_media_metadata().await.ok();
         }
-        self.update_media_metadata().await.ok();
         self.send_message(playlist_id, "play").await
     }
     pub async fn pause(&self, playlist_id: PlaylistId) {
-        if let Some(s) = self
-            .media_state
-            .lock()
-            .await
-            .as_mut()
-            .filter(|s| s.playlist_id == playlist_id)
+        #[cfg(feature = "media-controls")]
         {
-            s.set_playing(false)
+            if let Some(s) = self
+                .media_state
+                .lock()
+                .await
+                .as_mut()
+                .filter(|s| s.playlist_id == playlist_id)
+            {
+                s.set_playing(false)
+            }
+            self.update_media_metadata().await.ok();
         }
-        self.update_media_metadata().await.ok();
         self.send_message(playlist_id, "pause").await
     }
+    #[cfg(feature = "media-controls")]
     pub async fn playpause(&self, playlist_id: PlaylistId) {
+        #[cfg(feature = "media-controls")]
         let message = if let Some(s) = self
             .media_state
             .lock()
@@ -495,7 +520,11 @@ impl AppState {
         } else {
             "playpause"
         };
+        #[cfg(feature = "media-controls")]
         self.update_media_metadata().await.ok();
+
+        #[cfg(not(feature = "media-controls"))]
+        let message = "playpause";
         self.send_message(playlist_id, message).await
     }
 
@@ -614,6 +643,7 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    #[cfg(feature = "notifications")]
     pub fn notify_playlist_add(
         self: &Arc<Self>,
         playlist_id: PlaylistId,
@@ -672,7 +702,8 @@ impl AppState {
         });
     }
 
-    pub fn notify_playlist_item_change(self: &Arc<Self>, playlist_id: PlaylistId, media: &Media) {
+    #[cfg(feature = "notifications")]
+    pub fn notify_playlist_item_change(&self, playlist_id: PlaylistId, media: &Media) {
         let body = format!("{} - {}", media.artist, media.title);
         tokio::task::spawn_blocking(move || {
             Notification::new()
