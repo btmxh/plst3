@@ -236,3 +236,42 @@ pub fn update_playlist(
             })
         })
 }
+
+pub fn query_playlists(
+    db_conn: &mut SqliteConnection,
+    offset: usize,
+    limit: usize,
+) -> ResourceQueryResult<Box<[Playlist]>> {
+    use crate::schema::playlists::dsl::*;
+    Ok(playlists
+        .order(add_timestamp.desc())
+        .offset(offset.try_into().unwrap_or_default())
+        .limit(limit.try_into().unwrap_or(10))
+        .select(Playlist::as_select())
+        .load(db_conn)?
+        .into())
+}
+
+pub fn rename_playlist(
+    db_conn: &mut SqliteConnection,
+    playlist_id: PlaylistId,
+    new_title: &str,
+) -> ResourceQueryResult<()> {
+    use crate::schema::playlists::dsl::*;
+    diesel::update(playlists)
+        .filter(id.eq(playlist_id))
+        .set(title.eq(new_title))
+        .execute(db_conn)?;
+    Ok(())
+}
+
+pub fn delete_playlist(
+    db_conn: &mut SqliteConnection,
+    playlist_id: PlaylistId,
+) -> ResourceQueryResult<()> {
+    use crate::schema::playlists::dsl::*;
+    diesel::delete(playlists)
+        .filter(id.eq(playlist_id))
+        .execute(db_conn)?;
+    Ok(())
+}
