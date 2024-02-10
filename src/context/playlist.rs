@@ -1,38 +1,31 @@
 use super::{
     app::{AppRouter, AppState},
-    ResponseError, ResponseResult,
+    ResponseResult,
 };
 use crate::db::{
-    media::{query_media_with_id, Media, MediaId},
+    media::{query_media_with_id, MediaId},
     playlist::{
-        append_to_playlist, create_empty_playlist, query_playlist_from_id,
-        update_playlist_first_item, update_playlist_last_item, PlaylistId,
+        append_to_playlist, create_empty_playlist, delete_playlist, query_playlist_from_id,
+        rename_playlist, update_playlist_first_item, update_playlist_last_item, PlaylistId,
     },
     playlist_item::{
         query_playlist_item, remove_playlist_item, update_playlist_item_next_id,
-        update_playlist_item_prev_and_next_id, update_playlist_item_prev_id, PlaylistItem,
-        PlaylistItemId,
+        update_playlist_item_prev_and_next_id, update_playlist_item_prev_id, PlaylistItemId,
     },
     ResourceQueryResult,
 };
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{Request, StatusCode},
-    response::{Html, IntoResponse, Response},
+    http::{HeaderMap, Request, StatusCode},
+    response::{AppendHeaders, IntoResponse, Response},
     routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
 use diesel::SqliteConnection;
-use sailfish::TemplateOnce;
-use serde::{de, Deserialize, Deserializer};
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
-use time::Duration;
+use serde::Deserialize;
+use std::{collections::HashMap, sync::Arc};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use url::Url;
@@ -42,7 +35,7 @@ pub fn playlist_router() -> AppRouter {
         .route("/playlist/:id/add", post(playlist_add))
         .route("/playlist/:id/play", post(playlist_play))
         .route("/playlist/new", put(playlist_new))
-        .route("/playlist/:id/list", get(playlist_get))
+        .route("/playlist/:id/rename", patch(playlist_rename))
         .route("/playlist/:id/next", patch(playlist_next))
         .route("/playlist/:id/prev", patch(playlist_prev))
         .route("/playlist/:id/servermedia", get(legacy_servermedia))
@@ -50,6 +43,7 @@ pub fn playlist_router() -> AppRouter {
         .route("/playlist/goto/:id", patch(playlist_goto))
         .route("/playlist/:id/api/current", get(playlist_current))
         .route("/playlist/:id/delete", delete(playlist_delete))
+        .route("/playlist/:id/deletelist", delete(playlist_delete_list))
         .route("/playlist/:id/up", patch(playlist_move_up))
         .route("/playlist/:id/down", patch(playlist_move_down))
 }
@@ -108,7 +102,7 @@ async fn playlist_play(
     #[cfg(feature = "media-controls")]
     {
         app.set_current_playlist(Some(PlaylistId(playlist_id)))
-            .await;
+            .await?;
         Ok(format!("Current playlist set to playlist id {playlist_id}").into_response())
     }
 
@@ -118,143 +112,51 @@ async fn playlist_play(
     }
 }
 
+#[derive(Deserialize)]
+struct PlaylistNewQuery {
+    title: Option<String>,
+}
+
+fn redirect(path: &str) -> Response {
+    AppendHeaders([("HX-Redirect", path)]).into_response()
+}
+
 async fn playlist_new(
-    Query(query): Query<HashMap<String, String>>,
-    State(app): State<Arc<AppState>>,
-) -> ResponseResult<(StatusCode, Cow<'static, str>)> {
-    let mut db_conn = app.acquire_db_connection()?;
-    let id = create_empty_playlist(
-        &mut db_conn,
-        query
-            .get("title")
-            .map(|s| s.as_str())
-            .unwrap_or("<unnamed>"),
-    )
-    .await?;
-    Ok((
-        StatusCode::CREATED,
-        format!("New playlist created with id {id}").into(),
-    ))
-}
-
-struct Formatter;
-impl Formatter {
-    pub fn duration(&self, duration: &Duration) -> String {
-        let hours = duration.whole_hours();
-        let minutes = duration.whole_minutes() % 60;
-        let seconds = duration.whole_seconds() % 60;
-        format!("{:0>2}:{:0>2}:{:0>2}", hours, minutes, seconds)
-    }
-}
-
-#[derive(TemplateOnce)]
-#[template(path = "playlist-get.stpl")]
-struct PlaylistGetTemplate {
-    // pid: PlaylistId,
-    current_id: Option<PlaylistItemId>,
-    items: Vec<PlaylistItem>,
-    medias: Vec<Media>,
-    total_duration: Duration,
-    total_clients: usize,
-    fmt: Formatter,
-    ids: HashSet<PlaylistItemId>,
-}
-
-struct PlaylistGetArgs {
-    from: Option<PlaylistItemId>,
-    limit: usize,
-    ids: HashSet<PlaylistItemId>,
-}
-
-impl<'de> Deserialize<'de> for PlaylistGetArgs {
-    fn deserialize<D>(deserializer: D) -> std::prelude::v1::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_map(PlaylistGetArgsVisitor)
-    }
-}
-
-struct PlaylistGetArgsVisitor;
-impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
-    type Value = PlaylistGetArgs;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a PlaylistGetArgs")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::MapAccess<'de>,
-    {
-        let mut args = PlaylistGetArgs {
-            from: None,
-            limit: 1000,
-            ids: HashSet::new(),
-        };
-        while let Some(key) = map.next_key::<Cow<'static, str>>()? {
-            if key == "from" {
-                args.from = Some(map.next_value()?);
-            } else if key == "limit" {
-                args.limit = map.next_value::<usize>()?.clamp(1, 3000);
-            } else if let Some(id) = key.strip_prefix("playlist-item-") {
-                if let Ok(id) = id.parse() {
-                    args.ids.insert(id);
-                }
-            }
-        }
-
-        Ok(args)
-    }
-}
-
-async fn playlist_get(
-    Path(playlist_id): Path<i32>,
-    Query(PlaylistGetArgs { from, limit, ids }): Query<PlaylistGetArgs>,
+    header: HeaderMap,
+    Query(PlaylistNewQuery { title }): Query<PlaylistNewQuery>,
     State(app): State<Arc<AppState>>,
 ) -> ResponseResult<Response> {
     let mut db_conn = app.acquire_db_connection()?;
-    let playlist_id = PlaylistId(playlist_id);
-    let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
-    let from_id = from.or(playlist.first_playlist_item);
-    let mut items = Vec::with_capacity(limit);
-    if let Some(from_id) = from_id {
-        let from = query_playlist_item(&mut db_conn, from_id)?;
-        if from.playlist_id != playlist_id {
-            return Err(ResponseError::InvalidRequest(
-                "Playlist item does not belong to current playlist".into(),
-            ));
-        }
+    let title = title
+        .as_deref()
+        .or_else(|| header.get("HX-Prompt").and_then(|v| v.to_str().ok()))
+        .unwrap_or("<unnamed>");
+    create_empty_playlist(&mut db_conn, title).await?;
+    Ok(redirect("/watch"))
+}
 
-        items.push(from);
-        while items.len() < limit {
-            if let Some(next_id) = items.last().unwrap().next {
-                let next = query_playlist_item(&mut db_conn, next_id)?;
-                items.push(next);
-            } else {
-                break;
-            }
-        }
-    }
+async fn playlist_rename(
+    header: HeaderMap,
+    Path(playlist_id): Path<i32>,
+    Query(PlaylistNewQuery { title }): Query<PlaylistNewQuery>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<Response> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let title = title
+        .as_deref()
+        .or_else(|| header.get("HX-Prompt").and_then(|v| v.to_str().ok()))
+        .unwrap_or("<unnamed>");
+    rename_playlist(&mut db_conn, PlaylistId(playlist_id), title)?;
+    Ok(redirect("/watch"))
+}
 
-    let mut medias = Vec::with_capacity(items.len());
-    for item in items.iter() {
-        let media = query_media_with_id(&mut db_conn, item.media_id)?;
-        medias.push(media);
-    }
-
-    let template_args = PlaylistGetTemplate {
-        items,
-        medias,
-        current_id: playlist.current_item,
-        total_duration: playlist.total_duration.0,
-        total_clients: app.get_num_clients(playlist.id).await,
-        fmt: Formatter,
-        ids,
-    };
-
-    let html = template_args.render_once()?;
-    Ok(Html(html).into_response())
+async fn playlist_delete_list(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<Response> {
+    let mut db_conn = app.acquire_db_connection()?;
+    delete_playlist(&mut db_conn, PlaylistId(playlist_id))?;
+    Ok(redirect("/watch"))
 }
 
 async fn playlist_next(

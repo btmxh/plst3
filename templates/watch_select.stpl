@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <% include!("./header.stpl"); %>
+    <link rel="stylesheet" href="/styles/player-details.css">
+    <link rel="stylesheet" href="/styles/player.css">
+    <link rel="stylesheet" href="/styles/watch-select.css">
+    <script src="/scripts/htmx.js"></script>
+    <script src="/scripts/htmx-error.js" defer></script>
+    <script type="module" src="/scripts/watch.js" defer></script>
+    <script src="/scripts/tabbed-button-group.js" defer></script>
+</head>
+
+<body>
+  <% include!("./navbar.stpl"); %>
+  <div class="content-wrapper">
+    <section class="watch-select">
+      <header>
+        <h1 style="display: inline">Existing playlists</h1>
+        <div>
+          <div>
+            <% if let Some(prev_offset) = prev_offset { %>
+              <a href="/watch?offset=<%= prev_offset %>">prev</a>
+            <% } %>
+            <% if let Some(next_offset) = next_offset { %>
+              <a href="/watch?offset=<%= next_offset %>">more</a>
+            <% } %>
+          </div>
+          <div>
+            <a hx-put="/playlist/new" hx-prompt="Enter playlist name">new playlist</a>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <table>
+          <thead>
+          <tr>
+            <th scope="col" width="50%">Title</th>
+            <th scope="col">Date created</th>
+            <th scope="col">Duration</th>
+            <th scope="col">Media count</th>
+            <th scope="col"></th>
+          </tr>
+          </thead>
+
+          <tbody>
+            <% for playlist in playlists { %>
+            <tr>
+              <th scope="row">
+                <div><%= playlist.title %></div>
+                <a hx-patch="/playlist/<%= playlist.id %>/rename" hx-prompt="Enter new playlist name">rename</a>
+                <a hx-delete="/playlist/<%= playlist.id %>/deletelist">delete</a>
+              </th>
+              <td><%= formatter.date(&playlist.add_timestamp) %></th>
+              <td><%= formatter.duration(&playlist.total_duration.0) %></th>
+              <td><%= playlist.num_items %></th>
+              <td>
+                <a href="/watch/<%= playlist.id %>" style="display: block">goto</a>
+                <a hx-post="/playlist/<%= playlist.id %>/play" style="display: block">default</a>
+              </td>
+            </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </main>
+    </section>
+  </div>
+</body>
+
+</html>
