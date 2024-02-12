@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "es2022",
+      "DOM"
+    ],
+    "downlevelIteration": true,
+  },
+}
