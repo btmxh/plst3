@@ -13,7 +13,7 @@
     <% include!("./navbar.stpl"); %>
     <div class="content-wrapper">
       <main data-pid="<%= pid %>">
-        <div id="player-wrapper">
+        <article id="player-wrapper">
           <div id="yt-player-wrapper">
             <div id="yt-player">
             </div>
@@ -22,9 +22,9 @@
             <video id="server-player" preload="none" src="" controls>
             </video>
           </div>
-        </div>
+        </article>
 
-        <div id="player-details" class="tabbed-button-group">
+        <aside id="player-details" class="tabbed-button-group">
           <nav>
             <ul>
               <li> <button type="button" class="tab-button active">playlist</button> </li>
@@ -58,7 +58,7 @@
 
               <form class="playlist-controls" hx-trigger="submit">
                 <div class="button-bar">
-                  <button type="submit" hx-trigger="load,click,refresh-playlist from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-params="*" hx-include="*">refresh</button>
+                  <button type="submit" hx-trigger="load,click,refresh-playlist from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
                   <button type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
                   <button type="submit" hx-patch="/playlist/<%= pid %>/up"   hx-target="#diagnostics" hx-swap="afterbegin">up</button>
                   <button type="submit" hx-patch="/playlist/<%= pid %>/down" hx-target="#diagnostics" hx-swap="afterbegin">down</button>
@@ -78,7 +78,7 @@
               </div>
             </section>
           </div>
-        </div>
+        </aside>
       </main>
     </div>
   </body>
