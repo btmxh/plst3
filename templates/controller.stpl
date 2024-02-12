@@ -47,7 +47,7 @@
       Media duration: <%= media.duration.as_deref().map(|d| fmt.duration(d)).unwrap_or_else(|| "unknown".into()) %>
     </div>
     <div>
-      Media added on <%= fmt.datetime(&media.add_timestamp) %>
+      Media added on <%= fmt.datetime(&media.add_timestamp) %>, <%= media.views %> view(s)
     </div>
     <div>
       Playlist item added on <%= fmt.datetime(&item.add_timestamp) %>

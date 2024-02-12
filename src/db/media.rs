@@ -214,6 +214,7 @@ pub struct Media {
     pub url: String,
     pub add_timestamp: PrimitiveDateTime,
     pub media_type: String,
+    pub views: i32,
 }
 
 #[derive(Queryable, Selectable, Debug)]
@@ -326,5 +327,16 @@ pub fn insert_media_list(
     use crate::schema::media_lists::dsl::*;
     diesel::insert_into(media_lists)
         .values(media_list)
+        .get_result(db_conn)
+}
+
+pub fn increase_media_view_count(
+    db_conn: &mut SqliteConnection,
+    media_id: MediaId,
+) -> Result<Media, diesel::result::Error> {
+    use crate::schema::medias::dsl::*;
+    diesel::update(medias)
+        .filter(id.eq(media_id))
+        .set(views.eq(views + 1))
         .get_result(db_conn)
 }

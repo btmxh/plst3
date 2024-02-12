@@ -21,6 +21,7 @@ diesel::table! {
         url -> Text,
         add_timestamp -> Timestamp,
         media_type -> Text,
+        views -> Integer,
     }
 }
 
@@ -48,4 +49,9 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(media_lists, medias, playlist_items, playlists,);
+diesel::allow_tables_to_appear_in_same_query!(
+    media_lists,
+    medias,
+    playlist_items,
+    playlists,
+);

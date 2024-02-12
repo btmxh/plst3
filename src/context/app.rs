@@ -9,8 +9,8 @@ use crate::{
     db::{
         establish_connection,
         media::{
-            insert_media, insert_media_list, query_media_list_with_url, query_media_with_id,
-            query_media_with_url, Media, MediaOrMediaList,
+            increase_media_view_count, insert_media, insert_media_list, query_media_list_with_url,
+            query_media_with_id, query_media_with_url, Media, MediaOrMediaList,
         },
         playlist::{query_playlist_from_id, update_playlist_current_item, PlaylistId},
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
@@ -466,9 +466,13 @@ impl AppState {
                 })
                 .ok();
         }
-        #[cfg(feature = "notifications")]
         if let Some(media) = media {
-            self.notify_playlist_item_change(playlist_id, media);
+            #[cfg(feature = "notifications")]
+            {
+                self.notify_playlist_item_change(playlist_id, media);
+            }
+            let mut db_conn = self.acquire_db_connection()?;
+            increase_media_view_count(&mut db_conn, media.id)?;
         }
         Ok(())
     }
