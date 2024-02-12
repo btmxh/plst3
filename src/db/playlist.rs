@@ -261,7 +261,12 @@ pub fn rename_playlist(
     diesel::update(playlists)
         .filter(id.eq(playlist_id))
         .set(title.eq(new_title))
-        .execute(db_conn)?;
+        .execute(db_conn)
+        .map_err(|e| {
+            ResourceQueryError::db_error_if_not_not_found(e).unwrap_or_else(|| {
+                ResourceQueryError::ResourceNotFound(ResourceType::Playlist, playlist_id.into())
+            })
+        })?;
     Ok(())
 }
 
@@ -272,6 +277,11 @@ pub fn delete_playlist(
     use crate::schema::playlists::dsl::*;
     diesel::delete(playlists)
         .filter(id.eq(playlist_id))
-        .execute(db_conn)?;
+        .execute(db_conn)
+        .map_err(|e| {
+            ResourceQueryError::db_error_if_not_not_found(e).unwrap_or_else(|| {
+                ResourceQueryError::ResourceNotFound(ResourceType::Playlist, playlist_id.into())
+            })
+        })?;
     Ok(())
 }
