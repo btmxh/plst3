@@ -58,7 +58,8 @@
     <p>Debug info:</p>
     <p> Media ID <%= media.id %>, type <%= media.media_type %> </p>
     <p> Playlist item ID: <%= item.id %> (next <%= item.next.map(|i| i.0.to_string()).unwrap_or_else(|| "none".into()) %>, prev <%= item.prev.map(|i| i.0.to_string()).unwrap_or_else(|| "none".into()) %>) </p>
-    <p> Media URL <a href=<%= media.url %>><%= media.url %></a> </p>
+    <p> Media URL: <a href=<%= media.url %>><%= media.url %></a> </p>
+    <button type="button" hx-patch="/media/<%= media.id %>/update">update metadata</button>
   </section>
 <% } else { %>
 <div style="text-align: center;">

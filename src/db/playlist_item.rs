@@ -216,3 +216,15 @@ pub fn remove_playlist_item(
     }
     Ok(media_changed)
 }
+
+pub fn playlist_items_with_media_id(
+    db_conn: &mut SqliteConnection,
+    mid: MediaId,
+) -> ResourceQueryResult<Box<[PlaylistItem]>> {
+    use crate::schema::playlist_items::dsl::*;
+    Ok(playlist_items
+        .filter(media_id.eq(mid))
+        .select(PlaylistItem::as_select())
+        .load(db_conn)?
+        .into())
+}

@@ -67,6 +67,9 @@ impl From<FetchMediaError> for ResponseError {
                 MediaResolveError::MediaNotFound => {
                     Self::ResourceNotFound(ResourceType::Media, None)
                 }
+                MediaResolveError::InvalidType => {
+                    Self::UnprocessableEntity("Unsupported media type".into())
+                }
             },
             FetchMediaError::InvalidUrl(e) => {
                 Self::InvalidRequest(format!("Invalid URL: {e}").into())

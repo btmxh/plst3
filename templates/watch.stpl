@@ -74,7 +74,7 @@
             </section>
 
             <section class="tab controller">
-              <div hx-get="/playlist/<%= pid %>/controller" hx-trigger="load,media-changed from:body,playlist-rename from:body">
+              <div hx-get="/playlist/<%= pid %>/controller" hx-trigger="load,media-changed from:body,metadata-changed from:body">
               </div>
             </section>
             <section class="tab">

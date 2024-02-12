@@ -17,6 +17,8 @@ pub enum MediaResolveError {
     InvalidMedia,
     #[error("Resource referenced by url not found")]
     MediaNotFound,
+    #[error("Invalid media type")]
+    InvalidType,
 }
 
 pub async fn normalize_media_url(url: &str) -> Result<Url, url::ParseError> {
@@ -26,35 +28,40 @@ pub async fn normalize_media_url(url: &str) -> Result<Url, url::ParseError> {
     Ok(url)
 }
 
-pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveError> {
+pub async fn resolve_media(
+    url: &Url,
+    media_type: Option<&str>,
+) -> Result<NewMedia<'static>, MediaResolveError> {
     let mut invalid = vec![];
     let mut not_found = vec![];
     macro_rules! resolve {
-        ($resolver: ident) => {
-            match $resolver::resolve_media(&url).await {
-                Ok(media) => return Ok(media),
-                Err(e) => {
-                    let resolver = stringify!($resolver);
-                    tracing::warn!("error resolving media by {resolver} resolver: {e}");
-                    match &e {
-                        MediaResolveError::MediaNotFound => not_found.push(resolver),
-                        MediaResolveError::InvalidMedia => invalid.push(resolver),
-                        _ => return Err(e),
-                    };
-                }
-            };
+        ($resolver: ident, $typename: expr) => {
+            if media_type.map(|t| t == $typename).unwrap_or(true) {
+                match $resolver::resolve_media(&url).await {
+                    Ok(media) => return Ok(media),
+                    Err(e) => {
+                        let resolver = stringify!($resolver);
+                        tracing::warn!("error resolving media by {resolver} resolver: {e}");
+                        match &e {
+                            MediaResolveError::MediaNotFound => not_found.push(resolver),
+                            MediaResolveError::InvalidMedia => invalid.push(resolver),
+                            _ => return Err(e),
+                        };
+                    }
+                };
+            }
         };
     }
 
-    resolve!(local);
-    resolve!(youtube);
+    resolve!(local, "local");
+    resolve!(youtube, "yt");
 
     if invalid.is_empty() {
         Err(MediaResolveError::InvalidMedia)
     } else if not_found.is_empty() {
         Err(MediaResolveError::MediaNotFound)
     } else {
-        unreachable!()
+        Err(MediaResolveError::InvalidType)
     }
 }
 pub async fn resolve_media_list(

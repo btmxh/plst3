@@ -1,18 +1,23 @@
 use super::{
-    app::{AppRouter, AppState},
-    ResponseResult,
+    app::{AppRouter, AppState, FetchMediaError},
+    ResponseError, ResponseResult,
 };
-use crate::db::{
-    media::{query_media_with_id, MediaId},
-    playlist::{
-        append_to_playlist, create_empty_playlist, delete_playlist, query_playlist_from_id,
-        rename_playlist, update_playlist_first_item, update_playlist_last_item, PlaylistId,
+use crate::{
+    db::{
+        media::{query_media_with_id, update_media_in_db, MediaId},
+        playlist::{
+            append_to_playlist, create_empty_playlist, delete_playlist, query_playlist_from_id,
+            rename_playlist, update_playlist, update_playlist_first_item,
+            update_playlist_last_item, PlaylistId,
+        },
+        playlist_item::{
+            playlist_items_with_media_id, query_playlist_item, remove_playlist_item,
+            update_playlist_item_next_id, update_playlist_item_prev_and_next_id,
+            update_playlist_item_prev_id, PlaylistItem, PlaylistItemId,
+        },
+        ResourceQueryResult,
     },
-    playlist_item::{
-        query_playlist_item, remove_playlist_item, update_playlist_item_next_id,
-        update_playlist_item_prev_and_next_id, update_playlist_item_prev_id, PlaylistItemId,
-    },
-    ResourceQueryResult,
+    resolvers::{resolve_media, MediaResolveError},
 };
 use anyhow::anyhow;
 use axum::{
@@ -25,7 +30,11 @@ use axum::{
 };
 use diesel::SqliteConnection;
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
+use time::Duration;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use url::Url;
@@ -47,6 +56,7 @@ pub fn playlist_router() -> AppRouter {
         .route("/playlist/:id/deletelist", delete(playlist_delete_list))
         .route("/playlist/:id/up", patch(playlist_move_up))
         .route("/playlist/:id/down", patch(playlist_move_down))
+        .route("/media/:id/update", patch(update_media))
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,7 +167,7 @@ async fn playlist_rename(
         .unwrap_or("<unnamed>");
     rename_playlist(&mut db_conn, PlaylistId(playlist_id), title)?;
     let mut headers = Vec::<(&'static str, String)>::new();
-    headers.push(("HX-Trigger", "playlist-rename".into()));
+    headers.push(("HX-Trigger", "metadata-changed".into()));
     if refresh {
         headers.push(("HX-Refresh", "true".into()));
     }
@@ -404,4 +414,48 @@ async fn playlist_move_down(
     }
     app.refresh_playlist(playlist_id).await;
     Ok(())
+}
+
+async fn update_media(
+    Path(media_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<impl IntoResponse> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let media = query_media_with_id(&mut db_conn, MediaId(media_id))?;
+    let resolved_media = resolve_media(
+        &Url::parse(&media.url)
+            .map_err(|e| ResponseError::Generic(anyhow!("unable to parse url of media: {e}")))?,
+        Some(media.media_type.as_str()),
+    )
+    .await
+    .map_err(FetchMediaError::ResolveError)?;
+    let delta_duration_per_media = resolved_media
+        .duration
+        .map(|d| Duration::seconds_f64(d as f64))
+        .unwrap_or_default()
+        - media.duration.map(|d| d.0).unwrap_or_default();
+    update_media_in_db(&mut db_conn, media.id, resolved_media)?;
+    if !delta_duration_per_media.is_zero() {
+        let items = playlist_items_with_media_id(&mut db_conn, media.id)?;
+        let mut playlists = HashMap::<PlaylistId, i32>::new();
+        for item in items.iter() {
+            match playlists.entry(item.playlist_id) {
+                Entry::Occupied(mut v) => *v.get_mut() += 1,
+                Entry::Vacant(v) => {
+                    v.insert(1);
+                }
+            };
+        }
+
+        for (playlist_id, num_occurences) in playlists.into_iter() {
+            update_playlist(
+                &mut db_conn,
+                playlist_id,
+                delta_duration_per_media * num_occurences,
+                0,
+            )?;
+            app.refresh_playlist(playlist_id).await;
+        }
+    }
+    Ok(AppendHeaders([("HX-Trigger", "metadata-changed")]))
 }

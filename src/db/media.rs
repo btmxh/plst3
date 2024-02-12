@@ -230,7 +230,7 @@ pub struct MediaList {
     pub total_duration: DurationWrapper,
 }
 
-#[derive(Insertable)]
+#[derive(Insertable, AsChangeset)]
 #[diesel(table_name = medias)]
 pub struct NewMedia<'a> {
     pub title: Cow<'a, str>,
@@ -338,5 +338,17 @@ pub fn increase_media_view_count(
     diesel::update(medias)
         .filter(id.eq(media_id))
         .set(views.eq(views + 1))
+        .get_result(db_conn)
+}
+
+pub fn update_media_in_db(
+    db_conn: &mut SqliteConnection,
+    media_id: MediaId,
+    new_media: NewMedia<'_>,
+) -> Result<Media, diesel::result::Error> {
+    use crate::schema::medias::dsl::*;
+    diesel::update(medias)
+        .filter(id.eq(media_id))
+        .set(new_media)
         .get_result(db_conn)
 }

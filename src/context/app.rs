@@ -250,7 +250,7 @@ impl AppState {
             _ => {}
         }
 
-        let media = resolve_media(&media_url)
+        let media = resolve_media(&media_url, None)
             .await
             .map_err(FetchMediaError::ResolveError)?;
         insert_media(db_conn, media).map_err(FetchMediaError::DatabaseError)
@@ -283,7 +283,7 @@ impl AppState {
         let mut unsupported = false;
         let mut invalid = false;
         let mut not_found = false;
-        match resolve_media(&media_url).await {
+        match resolve_media(&media_url, None).await {
             Ok(media) => {
                 return insert_media(db_conn, media)
                     .map(Into::into)
