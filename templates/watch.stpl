@@ -4,6 +4,7 @@
     <% include!("./header.stpl"); %>
     <link rel="stylesheet" href="/styles/player-details.css">
     <link rel="stylesheet" href="/styles/player.css">
+    <link rel="stylesheet" href="/styles/controller.css">
     <script src="/scripts/htmx.js"></script>
     <script src="/scripts/htmx-error.js" defer></script>
     <script type="module" src="/scripts/watch.js" defer></script>
@@ -72,7 +73,10 @@
               </form>
             </section>
 
-            <section class="tab">chat</section>
+            <section class="tab controller">
+              <div hx-get="/playlist/<%= pid %>/controller" hx-trigger="load,media-changed from:body,playlist-rename from:body">
+              </div>
+            </section>
             <section class="tab">
               <div id="diagnostics">
               </div>

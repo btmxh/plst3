@@ -50,7 +50,7 @@
             <tr>
               <th scope="row">
                 <div><%= playlist.title %></div>
-                <a hx-patch="/playlist/<%= playlist.id %>/rename" hx-prompt="Enter new playlist name">rename</a>
+                <a hx-patch="/playlist/<%= playlist.id %>/rename" hx-vals='{"refresh": true}' hx-prompt="Enter new playlist name">rename</a>
                 <a hx-delete="/playlist/<%= playlist.id %>/deletelist">delete</a>
               </th>
               <td><%= formatter.date(&playlist.add_timestamp) %></th>
@@ -58,7 +58,7 @@
               <td><%= playlist.num_items %></th>
               <td>
                 <a href="/watch/<%= playlist.id %>" style="display: block">goto</a>
-                <a hx-post="/playlist/<%= playlist.id %>/play" style="display: block">default</a>
+                <a hx-post="/playlist/<%= playlist.id %>/play" hx-swap="none" style="display: block">default</a>
               </td>
             </tr>
             <% } %>

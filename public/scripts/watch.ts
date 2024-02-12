@@ -112,6 +112,7 @@ socket = new ReconnectableSocket(async (msg) => {
   } else if (msg === "media-changed") {
     fetchPlaylist();
     fetchPlayer();
+    document.body.dispatchEvent(new Event("media-changed"));
   } else if (msg === "play") {
     playerPlay();
   } else if (msg === "pause") {

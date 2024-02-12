@@ -36,6 +36,7 @@ pub fn playlist_router() -> AppRouter {
         .route("/playlist/:id/play", post(playlist_play))
         .route("/playlist/new", put(playlist_new))
         .route("/playlist/:id/rename", patch(playlist_rename))
+        .route("/playlist/:id/rename-norefresh", patch(playlist_rename))
         .route("/playlist/:id/next", patch(playlist_next))
         .route("/playlist/:id/prev", patch(playlist_prev))
         .route("/playlist/:id/servermedia", get(legacy_servermedia))
@@ -98,23 +99,25 @@ async fn playlist_add(
 async fn playlist_play(
     #[cfg(feature = "media-controls")] Path(playlist_id): Path<i32>,
     #[cfg(feature = "media-controls")] State(app): State<Arc<AppState>>,
-) -> ResponseResult<Response> {
+) -> ResponseResult<impl IntoResponse> {
     #[cfg(feature = "media-controls")]
     {
         app.set_current_playlist(Some(PlaylistId(playlist_id)))
             .await?;
-        Ok(format!("Current playlist set to playlist id {playlist_id}").into_response())
+        Ok(())
     }
 
     #[cfg(not(feature = "media-controls"))]
     {
-        Ok(StatusCode::METHOD_NOT_ALLOWED.into_response())
+        Ok(StatusCode::METHOD_NOT_ALLOWED)
     }
 }
 
 #[derive(Deserialize)]
-struct PlaylistNewQuery {
+struct PlaylistTitle {
     title: Option<String>,
+    #[serde(default)]
+    refresh: bool,
 }
 
 fn redirect(path: &str) -> Response {
@@ -123,31 +126,42 @@ fn redirect(path: &str) -> Response {
 
 async fn playlist_new(
     header: HeaderMap,
-    Query(PlaylistNewQuery { title }): Query<PlaylistNewQuery>,
+    Query(PlaylistTitle { title, refresh }): Query<PlaylistTitle>,
     State(app): State<Arc<AppState>>,
-) -> ResponseResult<Response> {
+) -> ResponseResult<impl IntoResponse> {
     let mut db_conn = app.acquire_db_connection()?;
     let title = title
         .as_deref()
         .or_else(|| header.get("HX-Prompt").and_then(|v| v.to_str().ok()))
         .unwrap_or("<unnamed>");
-    create_empty_playlist(&mut db_conn, title).await?;
-    Ok(redirect("/watch"))
+    let id = create_empty_playlist(&mut db_conn, title).await?;
+    let mut headers = Vec::<(&'static str, String)>::new();
+    if refresh {
+        headers.push(("HX-Refresh", "true".into()));
+    } else {
+        headers.push(("HX-Redirect", format!("/watch/{id}")));
+    }
+    Ok(AppendHeaders(headers))
 }
 
 async fn playlist_rename(
     header: HeaderMap,
     Path(playlist_id): Path<i32>,
-    Query(PlaylistNewQuery { title }): Query<PlaylistNewQuery>,
+    Query(PlaylistTitle { title, refresh }): Query<PlaylistTitle>,
     State(app): State<Arc<AppState>>,
-) -> ResponseResult<Response> {
+) -> ResponseResult<impl IntoResponse> {
     let mut db_conn = app.acquire_db_connection()?;
     let title = title
         .as_deref()
         .or_else(|| header.get("HX-Prompt").and_then(|v| v.to_str().ok()))
         .unwrap_or("<unnamed>");
     rename_playlist(&mut db_conn, PlaylistId(playlist_id), title)?;
-    Ok(redirect("/watch"))
+    let mut headers = Vec::<(&'static str, String)>::new();
+    headers.push(("HX-Trigger", "playlist-rename".into()));
+    if refresh {
+        headers.push(("HX-Refresh", "true".into()));
+    }
+    Ok(AppendHeaders(headers))
 }
 
 async fn playlist_delete_list(

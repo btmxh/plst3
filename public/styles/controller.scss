@@ -1,0 +1,51 @@
+.controller {
+  padding: 0.5rem;
+}
+
+.playlist-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.controller-hr {
+  border: none;
+  border-top: 1px solid #ccc;
+}
+
+.media-info-form {
+  display: grid;
+  gap: 0.25rem;
+  grid-template-columns: 1fr;
+
+  .media-info-grid {
+    display: grid;
+    grid-template-columns: 0fr 1fr 0fr;
+    gap: 0.25rem;
+
+    label {
+      text-align: center;
+    }
+
+    .label-div {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    input[name='media-title'] {
+      grid-column: 2 / -1;
+    }
+  }
+
+  .form-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+  }
+}
+
+.media-details-controller {
+  text-align: right;
+}

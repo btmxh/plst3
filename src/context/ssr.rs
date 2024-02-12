@@ -31,6 +31,7 @@ pub fn ssr_router() -> AppRouter {
         .route("/watch/:id", get(watch))
         .route("/watch", get(watch_select))
         .route("/playlist/:id/list", get(playlist_get))
+        .route("/playlist/:id/controller", get(playlist_controller))
 }
 
 #[derive(TemplateOnce)]
@@ -47,7 +48,9 @@ struct WatchTemplate {
     pid: PlaylistId,
 }
 
-async fn watch(Path(pid): Path<i32>) -> ResponseResult<Html<String>> {
+async fn watch(
+    Path(pid): Path<i32>,
+) -> ResponseResult<Html<String>> {
     Ok(Html(
         WatchTemplate {
             pid: PlaylistId(pid),
@@ -233,6 +236,40 @@ async fn watch_select(
             prev_offset,
             next_offset,
             formatter: Formatter,
+        }
+        .render_once()?,
+    ))
+}
+
+#[derive(TemplateOnce)]
+#[template(path = "controller.stpl")]
+struct ControllerTemplate {
+    pid: PlaylistId,
+    playlist: Playlist,
+    media_item: Option<(Media, PlaylistItem)>,
+    fmt: Formatter,
+}
+
+async fn playlist_controller(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<Html<String>> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let playlist = query_playlist_from_id(&mut db_conn, PlaylistId(playlist_id))?;
+    let media_item = match playlist.current_item {
+        Some(item_id) => {
+            let item = query_playlist_item(&mut db_conn, item_id)?;
+            let media = query_media_with_id(&mut db_conn, item.media_id)?;
+            Some((media, item))
+        }
+        None => None,
+    };
+    Ok(Html(
+        ControllerTemplate {
+            pid: PlaylistId(playlist_id),
+            playlist,
+            media_item,
+            fmt: Formatter,
         }
         .render_once()?,
     ))
