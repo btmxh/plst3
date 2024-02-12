@@ -342,11 +342,13 @@ impl AppState {
     }
 
     #[cfg(feature = "media-controls")]
-    pub async fn set_current_playlist(&self, id: Option<PlaylistId>) {
+    pub async fn set_current_playlist(&self, id: Option<PlaylistId>) -> anyhow::Result<()> {
         *self.media_state.lock().await = id.map(|id| MediaControlState {
             playlist_id: id,
             is_playing: true,
         });
+        self.update_media_metadata().await?;
+        Ok(())
     }
 
     pub async fn add_websocket(
