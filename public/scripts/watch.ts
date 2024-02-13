@@ -107,12 +107,9 @@ const playerPlaying = async () => {
 };
 
 socket = new ReconnectableSocket(async (msg) => {
-  if (msg === "refresh-playlist") {
-    fetchPlaylist();
-  } else if (msg === "media-changed") {
-    fetchPlaylist();
+  document.body.dispatchEvent(new Event(msg));
+  if (msg === "media-changed") {
     fetchPlayer();
-    document.body.dispatchEvent(new Event("media-changed"));
   } else if (msg === "play") {
     playerPlay();
   } else if (msg === "pause") {

@@ -393,6 +393,10 @@ impl AppState {
         self.send_message(playlist_id, "refresh-playlist").await;
     }
 
+    pub async fn metadata_changed(&self, playlist_id: PlaylistId) {
+        self.send_message(playlist_id, "metadata-changed").await;
+    }
+
     #[cfg(feature = "i3-refresh")]
     fn trigger_wm_update() {
         tokio::task::spawn_blocking(|| {
@@ -405,7 +409,7 @@ impl AppState {
     }
 
     #[cfg(feature = "media-controls")]
-    async fn update_media_metadata(&self) -> Result<()> {
+    pub async fn update_media_metadata(&self) -> Result<()> {
         if let Some(controls) = self.media_controls.as_ref() {
             let mut controls = controls.lock().await;
             if let Some(state) = self.media_state.lock().await.as_ref() {
@@ -421,8 +425,8 @@ impl AppState {
                 let media = media.as_ref();
                 controls
                     .set_metadata(MediaMetadata {
-                        title: media.map(|m| m.title.as_str()),
-                        artist: media.map(|m| m.artist.as_str()),
+                        title: media.map(|m| m.display_title()),
+                        artist: media.map(|m| m.display_artist()),
                         album: None,
                         cover_url: None,
                         duration: media.and_then(|m| m.duration).map(|d| {
@@ -441,6 +445,14 @@ impl AppState {
         Ok(())
     }
 
+    pub async fn get_current_playlist(&self) -> Option<PlaylistId> {
+        self.media_state
+            .lock()
+            .await
+            .as_ref()
+            .map(|state| state.playlist_id)
+    }
+
     pub async fn media_changed(
         self: &Arc<Self>,
         playlist_id: PlaylistId,
@@ -451,14 +463,7 @@ impl AppState {
         }
         self.send_message(playlist_id, "media-changed").await;
         #[cfg(feature = "media-controls")]
-        if Some(playlist_id)
-            == self
-                .media_state
-                .lock()
-                .await
-                .as_ref()
-                .map(|s| s.playlist_id)
-        {
+        if Some(playlist_id) == self.get_current_playlist().await {
             self.update_media_metadata()
                 .await
                 .map_err(|e| {
@@ -657,14 +662,8 @@ impl AppState {
         item_id: PlaylistItemId,
     ) {
         let body = match medias {
-            MediaOrMediaList::Media(media) => format!("{} - {}", media.artist, media.title),
-            MediaOrMediaList::MediaList(media_list) => {
-                format!(
-                    "{} - {}",
-                    media_list.title.as_deref().unwrap_or("No title"),
-                    media_list.artist.as_deref().unwrap_or("No artist")
-                )
-            }
+            MediaOrMediaList::Media(media) => media.display_string(),
+            MediaOrMediaList::MediaList(media_list) => media_list.display_string(),
         };
         let arc_self = self.clone();
         tokio::task::spawn_blocking(move || {
@@ -710,7 +709,7 @@ impl AppState {
 
     #[cfg(feature = "notifications")]
     pub fn notify_playlist_item_change(&self, playlist_id: PlaylistId, media: &Media) {
-        let body = format!("{} - {}", media.artist, media.title);
+        let body = media.display_string();
         tokio::task::spawn_blocking(move || {
             Notification::new()
                 .summary(&format!("Media changed in playlist {playlist_id}"))

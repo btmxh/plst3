@@ -33,9 +33,9 @@
         <span class="playlist-index">
           <%= human_index %>.
         </span>
-        <span class="playlist-entry-title"> <%= media.title %> </span>
+        <span class="playlist-entry-title"> <%= media.display_title() %> </span>
         -
-        <span class="playlist-entry-artist"> <%= media.artist %> </span>
+        <span class="playlist-entry-artist"> <%= media.display_artist() %> </span>
       </label>
       <div class="playlist-utilities">
         <a href=<%- media.url | dbg %> target="_blank">link</a>

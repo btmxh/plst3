@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     db::{
-        media::{query_media_with_id, update_media_in_db, MediaId},
+        media::{query_media_with_id, replace_media_metadata, update_media_alt_data, MediaId},
         playlist::{
             append_to_playlist, create_empty_playlist, delete_playlist, query_playlist_from_id,
             rename_playlist, update_playlist, update_playlist_first_item,
@@ -31,7 +31,7 @@ use axum::{
 use diesel::SqliteConnection;
 use serde::Deserialize;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
 };
 use time::Duration;
@@ -57,6 +57,7 @@ pub fn playlist_router() -> AppRouter {
         .route("/playlist/:id/up", patch(playlist_move_up))
         .route("/playlist/:id/down", patch(playlist_move_down))
         .route("/media/:id/update", patch(update_media))
+        .route("/media/:id/metadata/edit", patch(update_media_metadata))
 }
 
 #[derive(Debug, Deserialize)]
@@ -434,28 +435,63 @@ async fn update_media(
         .map(|d| Duration::seconds_f64(d as f64))
         .unwrap_or_default()
         - media.duration.map(|d| d.0).unwrap_or_default();
-    update_media_in_db(&mut db_conn, media.id, resolved_media)?;
-    if !delta_duration_per_media.is_zero() {
-        let items = playlist_items_with_media_id(&mut db_conn, media.id)?;
-        let mut playlists = HashMap::<PlaylistId, i32>::new();
-        for item in items.iter() {
-            match playlists.entry(item.playlist_id) {
-                Entry::Occupied(mut v) => *v.get_mut() += 1,
-                Entry::Vacant(v) => {
-                    v.insert(1);
-                }
-            };
-        }
+    replace_media_metadata(&mut db_conn, media.id, resolved_media)?;
+    let items = playlist_items_with_media_id(&mut db_conn, media.id)?;
+    let mut playlists = HashMap::<PlaylistId, i32>::new();
+    for item in items.iter() {
+        match playlists.entry(item.playlist_id) {
+            Entry::Occupied(mut v) => *v.get_mut() += 1,
+            Entry::Vacant(v) => {
+                v.insert(1);
+            }
+        };
+    }
 
-        for (playlist_id, num_occurences) in playlists.into_iter() {
-            update_playlist(
-                &mut db_conn,
-                playlist_id,
-                delta_duration_per_media * num_occurences,
-                0,
-            )?;
-            app.refresh_playlist(playlist_id).await;
+    for (playlist_id, num_occurences) in playlists.into_iter() {
+        update_playlist(
+            &mut db_conn,
+            playlist_id,
+            delta_duration_per_media * num_occurences,
+            0,
+        )?;
+        app.refresh_playlist(playlist_id).await;
+        app.metadata_changed(playlist_id).await;
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct MediaMetadata {
+    media_title: String,
+    media_artist: String,
+}
+
+async fn update_media_metadata(
+    Path(media_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+    Form(MediaMetadata {
+        media_title,
+        media_artist,
+    }): Form<MediaMetadata>,
+) -> ResponseResult<impl IntoResponse> {
+    let media_id = MediaId(media_id);
+    let mut db_conn = app.acquire_db_connection()?;
+    update_media_alt_data(
+        &mut db_conn,
+        media_id,
+        media_title.as_str(),
+        media_artist.as_str(),
+    )?;
+    let items = playlist_items_with_media_id(&mut db_conn, media_id)?;
+    let playlists: HashSet<PlaylistId> = items.iter().map(|item| item.playlist_id).collect();
+    for playlist_id in playlists {
+        app.refresh_playlist(playlist_id).await;
+        app.metadata_changed(playlist_id).await;
+        #[cfg(feature = "media-controls")]
+        if app.get_current_playlist().await == Some(playlist_id) {
+            app.update_media_metadata().await?;
         }
     }
-    Ok(AppendHeaders([("HX-Trigger", "metadata-changed")]))
+    Ok(())
 }

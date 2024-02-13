@@ -22,6 +22,8 @@ diesel::table! {
         add_timestamp -> Timestamp,
         media_type -> Text,
         views -> Integer,
+        alt_title -> Nullable<Text>,
+        alt_artist -> Nullable<Text>,
     }
 }
 

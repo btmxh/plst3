@@ -7,44 +7,40 @@
   </div>
 </section>
 <hr class="controller-hr">
-<% if let Some((media, item)) = media_item { %>
-  <form class="media-info-form">
+<% if let Some((media, item))=media_item { %>
+  <form class="media-info-form" hx-trigger="submit">
     <div class="media-info-grid">
       <div class="label-div"> <label for="media-title">Title</label> </div>
-      <input type="text" name="media-title" value="<%= media.title %>">
+      <input type="text" name="media-title" value="<%= media.display_title() %>">
       <div class="label-div"> <label for="media-artist">Artist</label> </div>
-      <input id="media-artist-input" type="text" name="media-artist" value="<%= media.artist %>">
+      <input id="media-artist-input" type="text" name="media-artist" value="<%= media.display_artist() %>">
       <div>
         <button type="button">remove brackets</button>
       </div>
     </div>
-    <div> 
+    <div>
       Original title: <%= media.title %>
-      <button class="link-button"
-              type="button"
-              style="display: inline;"
-              onclick='navigator.clipboard.writeText(<%= media.title | dbg %>)'>
-        copy
-      </button>
-   </div>
-    <div> 
+        <button class="link-button" type="button" style="display: inline;"
+          onclick='navigator.clipboard.writeText(<%= media.title | dbg %>)'>
+          copy
+        </button>
+    </div>
+    <div>
       Original artist: <%= media.artist %>
-      <button class="link-button"
-              type="button"
-              style="display: inline;"
-              onclick='navigator.clipboard.writeText(<%= media.artist | dbg %>)'>
-        copy
-      </button>
-   </div>
-   <div class="form-buttons">
-    <button type="submit">Submit</button>
-    <button type="reset">Reset</button>
-   </div>
+        <button class="link-button" type="button" style="display: inline;"
+          onclick='navigator.clipboard.writeText(<%= media.artist | dbg %>)'>
+          copy
+        </button>
+    </div>
+    <div class="form-buttons">
+      <button type="submit" hx-patch="/media/<%= media.id %>/metadata/edit" hx-target="#diagnostics" hx-swap="afterbegin">Submit</button>
+      <button type="reset">Reset</button>
+    </div>
   </form>
   <hr class="controller-hr">
   <section class="media-details-controller">
     <div>
-      Media duration: <%= media.duration.as_deref().map(|d| fmt.duration(d)).unwrap_or_else(|| "unknown".into()) %>
+      Media duration: <%= media.duration.as_deref().map(|d| fmt.duration(d)).unwrap_or_else(|| "unknown" .into()) %>
     </div>
     <div>
       Media added on <%= fmt.datetime(&media.add_timestamp) %>, <%= media.views %> view(s)
@@ -56,13 +52,15 @@
   <hr class="controller-hr">
   <section>
     <p>Debug info:</p>
-    <p> Media ID <%= media.id %>, type <%= media.media_type %> </p>
-    <p> Playlist item ID: <%= item.id %> (next <%= item.next.map(|i| i.0.to_string()).unwrap_or_else(|| "none".into()) %>, prev <%= item.prev.map(|i| i.0.to_string()).unwrap_or_else(|| "none".into()) %>) </p>
-    <p> Media URL: <a href=<%= media.url %>><%= media.url %></a> </p>
+    <p> Media ID <%= media.id %>, type <%= media.media_type %>
+    </p>
+    <p> Playlist item ID: <%= item.id %> (next <%= item.next.map(|i| i.0.to_string()).unwrap_or_else(|| "none" .into())
+          %>, prev <%= item.prev.map(|i| i.0.to_string()).unwrap_or_else(|| "none" .into()) %>) </p>
+    <p> Media URL: <a href=<%=media.url %>><%= media.url %></a> </p>
     <button type="button" hx-patch="/media/<%= media.id %>/update">update metadata</button>
   </section>
-<% } else { %>
-<div style="text-align: center;">
-  <h1 style="text-align: center;">no media is playing</h1>
-</div>
-<% } %>
+  <% } else { %>
+    <div style="text-align: center;">
+      <h1 style="text-align: center;">no media is playing</h1>
+    </div>
+    <% } %>
