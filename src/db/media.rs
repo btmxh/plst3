@@ -215,6 +215,22 @@ pub struct Media {
     pub add_timestamp: PrimitiveDateTime,
     pub media_type: String,
     pub views: i32,
+    pub alt_title: Option<String>,
+    pub alt_artist: Option<String>,
+}
+
+impl Media {
+    pub fn display_title(&self) -> &str {
+        self.alt_title.as_deref().unwrap_or(self.title.as_str())
+    }
+
+    pub fn display_artist(&self) -> &str {
+        self.alt_artist.as_deref().unwrap_or(self.artist.as_str())
+    }
+
+    pub fn display_string(&self) -> String {
+        format!("{} - {}", self.display_artist(), self.display_title())
+    }
 }
 
 #[derive(Queryable, Selectable, Debug)]
@@ -228,6 +244,20 @@ pub struct MediaList {
     pub url: String,
     pub add_timestamp: PrimitiveDateTime,
     pub total_duration: DurationWrapper,
+}
+
+impl MediaList {
+    pub fn display_title(&self) -> &str {
+        self.title.as_deref().unwrap_or("No title")
+    }
+
+    pub fn display_artist(&self) -> &str {
+        self.artist.as_deref().unwrap_or("No artist")
+    }
+
+    pub fn display_string(&self) -> String {
+        format!("{} - {}", self.display_artist(), self.display_title())
+    }
 }
 
 #[derive(Insertable, AsChangeset)]
@@ -341,7 +371,7 @@ pub fn increase_media_view_count(
         .get_result(db_conn)
 }
 
-pub fn update_media_in_db(
+pub fn replace_media_metadata(
     db_conn: &mut SqliteConnection,
     media_id: MediaId,
     new_media: NewMedia<'_>,
@@ -350,5 +380,21 @@ pub fn update_media_in_db(
     diesel::update(medias)
         .filter(id.eq(media_id))
         .set(new_media)
+        .get_result(db_conn)
+}
+
+pub fn update_media_alt_data(
+    db_conn: &mut SqliteConnection,
+    media_id: MediaId,
+    new_alt_title: &str,
+    new_alt_artist: &str,
+) -> Result<Media, diesel::result::Error> {
+    use crate::schema::medias::dsl::*;
+    diesel::update(medias)
+        .filter(id.eq(media_id))
+        .set((
+            alt_title.eq(Some(new_alt_title)),
+            alt_artist.eq(Some(new_alt_artist)),
+        ))
         .get_result(db_conn)
 }
