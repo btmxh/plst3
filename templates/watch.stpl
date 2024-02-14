@@ -59,7 +59,7 @@
 
               <form class="playlist-controls" hx-trigger="submit">
                 <div class="button-bar">
-                  <button type="submit" hx-trigger="load,click,refresh-playlist from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
+                  <button type="submit" hx-trigger="load,click,refresh-playlist from:body, media-changed from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
                   <button type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
                   <button type="submit" hx-patch="/playlist/<%= pid %>/up"   hx-target="#diagnostics" hx-swap="afterbegin">up</button>
                   <button type="submit" hx-patch="/playlist/<%= pid %>/down" hx-target="#diagnostics" hx-swap="afterbegin">down</button>
