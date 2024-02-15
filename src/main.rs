@@ -1,4 +1,7 @@
+use std::{net::SocketAddr, path::PathBuf, str::FromStr};
+
 use anyhow::{Context, Result};
+use axum_server::tls_rustls::RustlsConfig;
 use context::create_app_router;
 
 use dotenvy::dotenv;
@@ -22,12 +25,28 @@ async fn main() -> Result<()> {
     let app = create_app_router()
         .await
         .context("unable to create app router")?;
-    let listener = TcpListener::bind("localhost:7272")
+    let addr = SocketAddr::from_str(
+        std::env::var("PLST_ADDR")
+            .as_deref()
+            .unwrap_or("localhost:7272"),
+    )
+    .context("unable to parse address")?;
+    axum_server::bind_rustls(
+        addr,
+        RustlsConfig::from_pem_file(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tls")
+                .join("plst3.crt"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tls")
+                .join("plst3.key"),
+        )
         .await
-        .context("unable to bind TcpListener")?;
-    axum::serve(listener, app)
-        .await
-        .context("unable to serve axum server")?;
+        .context("unable to load TLS config")?,
+    )
+    .serve(app.into_make_service())
+    .await
+    .context("unable to run server")?;
 
     Ok(())
 }
