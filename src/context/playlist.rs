@@ -13,11 +13,11 @@ use crate::{
         playlist_item::{
             playlist_items_with_media_id, query_playlist_item, remove_playlist_item,
             update_playlist_item_next_id, update_playlist_item_prev_and_next_id,
-            update_playlist_item_prev_id, PlaylistItem, PlaylistItemId,
+            update_playlist_item_prev_id, PlaylistItemId,
         },
         ResourceQueryResult,
     },
-    resolvers::{resolve_media, MediaResolveError},
+    resolvers::resolve_media,
 };
 use anyhow::anyhow;
 use axum::{
@@ -108,20 +108,12 @@ async fn playlist_add(
 }
 
 async fn playlist_play(
-    #[cfg(feature = "media-controls")] Path(playlist_id): Path<i32>,
-    #[cfg(feature = "media-controls")] State(app): State<Arc<AppState>>,
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
 ) -> ResponseResult<impl IntoResponse> {
-    #[cfg(feature = "media-controls")]
-    {
-        app.set_current_playlist(Some(PlaylistId(playlist_id)))
-            .await?;
-        Ok(())
-    }
-
-    #[cfg(not(feature = "media-controls"))]
-    {
-        Ok(StatusCode::METHOD_NOT_ALLOWED)
-    }
+    app.set_current_playlist(Some(PlaylistId(playlist_id)))
+        .await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -490,7 +482,7 @@ async fn update_media_metadata(
         app.metadata_changed(playlist_id).await;
         #[cfg(feature = "media-controls")]
         if app.get_current_playlist().await == Some(playlist_id) {
-            app.update_media_metadata().await?;
+            app.update_media_metadata(true).await?;
         }
     }
     Ok(())
