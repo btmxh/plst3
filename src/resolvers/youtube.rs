@@ -8,12 +8,21 @@ use crate::db::media::{NewMedia, NewMediaList};
 
 use super::MediaResolveError;
 
-pub fn youtube_video_url(id: &str) -> String {
+pub fn youtube_video_url_string(id: &str) -> String {
     format!("https://youtu.be/{id}")
 }
 
-pub fn youtube_list_url(id: &str) -> String {
+pub fn youtube_list_url_string(id: &str) -> String {
     format!("https://youtube.com/playlist?list={id}")
+}
+
+pub fn youtube_video_url(id: &str) -> Url {
+    Url::parse(&youtube_video_url_string(id))
+        .expect("invalid id, sanitize with check_video_id first")
+}
+
+pub fn youtube_list_url(id: &str) -> Url {
+    Url::parse(&youtube_list_url_string(id)).expect("invalid id, sanitize with check_list_id first")
 }
 
 pub enum YoutubeUrlParseResult<'a> {
@@ -28,6 +37,11 @@ fn check_video_id(id: &str) -> bool {
         && id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+fn check_list_id(id: &str) -> bool {
+    id.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
@@ -49,7 +63,7 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
             .find(|(key, _)| key == "list")
             .map(|(_, value)| value);
         if path == "/playlist" && url.host_str() == Some("youtube.com") {
-            if let Some(id) = list_id {
+            if let Some(id) = list_id.filter(|id| check_list_id(id)) {
                 return YoutubeUrlParseResult::Playlist(id.into_owned().into());
             }
         }
@@ -59,37 +73,11 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
 }
 
 pub fn normalize_media_url(url: Url) -> Url {
-    if !url
-        .host_str()
-        .map(|host| host.contains("youtube") || host.contains("youtu.be") || host.contains("yt.be"))
-        .unwrap_or_default()
-    {
-        return url;
+    match check_normalized_youtube_url(&url) {
+        YoutubeUrlParseResult::Video(id) => youtube_video_url(&id),
+        YoutubeUrlParseResult::Playlist(id) => youtube_list_url(&id),
+        YoutubeUrlParseResult::Invalid => url,
     }
-
-    {
-        let video_id = url
-            .query_pairs()
-            .find(|(key, _)| key == "v")
-            .map(|(_, value)| value)
-            .unwrap_or(url.path().into());
-        if check_video_id(&video_id) {
-            return Url::parse(&format!("https://youtu.be/{video_id}")).unwrap_or(url);
-        }
-    }
-
-    {
-        let list_id = url
-            .query_pairs()
-            .find(|(key, _)| key == "list")
-            .map(|(_, value)| value);
-        if let Some(list_id) = list_id {
-            return Url::parse(&format!("https://youtube.com/playlist?list={list_id}"))
-                .unwrap_or(url);
-        }
-    }
-
-    url
 }
 
 pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveError> {
@@ -166,7 +154,7 @@ pub async fn resolve_media_list(
                 .entries
                 .unwrap_or_default()
                 .into_iter()
-                .map(|video| youtube_video_url(&video.id))
+                .map(|video| youtube_video_url_string(&video.id))
                 .collect(),
         )),
         Ok(_) => Err(MediaResolveError::InvalidMedia),
