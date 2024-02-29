@@ -16,7 +16,10 @@ use crate::{
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
         ResourceQueryError, ResourceQueryResult, SqliteConnectionPool,
     },
-    resolvers::{normalize_media_url, resolve_media, resolve_media_list, MediaResolveError},
+    resolvers::{
+        get_media_thumbnail_url, normalize_media_url, resolve_media, resolve_media_list,
+        MediaResolveError,
+    },
 };
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::ws::Message, Router};
@@ -494,6 +497,7 @@ impl AppState {
                 let app = self.clone();
                 let media = media.clone();
                 tokio::task::spawn_blocking(move || {
+                    tracing::debug!("updating discord rich presence to media {media:?}");
                     app.media_state.discord_rpc.blocking_lock().set_activity(move |_| {
                         let mut a = Activity::new();
                         if let Some(media) = media.as_ref() {
@@ -505,10 +509,15 @@ impl AppState {
                         if media_changed {
                             a = a.timestamps(|ts| ts.start(time::OffsetDateTime::now_utc().unix_timestamp() as _));
                         }
-                        a.assets(|ass|
-                                 ass.large_text("plst3")
-                                 .large_image("https://raw.githubusercontent.com/btmxh/plst3/master/public/assets/plst.png")
-                                )
+                        a.assets(|mut ass| {
+                            if let Some(media) = media.as_ref() {
+                                if let Some(thumbnail_url) = get_media_thumbnail_url(&media.media_type, &media.url) {
+                                    ass = ass.large_image(thumbnail_url).large_text(media.display_title());
+                                }
+                            }
+                            ass.small_text("plst3")
+                               .small_image("https://raw.githubusercontent.com/btmxh/plst3/master/public/assets/plst.png")
+                        })
                     }).ok();
                 });
             }

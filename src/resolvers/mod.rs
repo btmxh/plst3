@@ -64,6 +64,7 @@ pub async fn resolve_media(
         Err(MediaResolveError::InvalidType)
     }
 }
+
 pub async fn resolve_media_list(
     url: &Url,
 ) -> Result<(NewMediaList<'static>, Vec<String>), MediaResolveError> {
@@ -96,4 +97,12 @@ pub async fn resolve_media_list(
     } else {
         unreachable!()
     }
+}
+
+pub fn get_media_thumbnail_url(media_type: &str, media_url: &str) -> Option<String> {
+    if media_type == "yt" {
+        return youtube::get_media_thumbnail_url(media_url);
+    }
+
+    None
 }
