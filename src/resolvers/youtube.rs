@@ -162,3 +162,12 @@ pub async fn resolve_media_list(
         Err(e) => Err(MediaResolveError::FailedProcessing(e.into())),
     }
 }
+
+pub fn get_media_thumbnail_url(media_url: &str) -> Option<String> {
+    let url = Url::parse(media_url).ok()?;
+    if let YoutubeUrlParseResult::Video(id) = check_normalized_youtube_url(&url) {
+        Some(format!("https://img.youtube.com/vi/{id}/maxresdefault.jpg"))
+    } else {
+        None
+    }
+}

@@ -16,53 +16,127 @@ use crate::{
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
         ResourceQueryError, ResourceQueryResult, SqliteConnectionPool,
     },
-    resolvers::{normalize_media_url, resolve_media, resolve_media_list, MediaResolveError},
+    resolvers::{
+        get_media_thumbnail_url, normalize_media_url, resolve_media, resolve_media_list,
+        MediaResolveError,
+    },
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use axum::{extract::ws::Message, Router};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
+use discord_presence::models::Activity;
 use futures::SinkExt;
-#[cfg(feature = "notifications")]
-use notify_rust::Notification;
 use r2d2::PooledConnection;
-#[cfg(feature = "media-controls")]
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 use std::{
     collections::{hash_map::Entry, HashMap},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::{runtime::Handle, sync::Mutex};
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 
-#[derive(Clone, Copy)]
-struct MediaControlState {
-    #[cfg(feature = "media-controls")]
-    playlist_id: PlaylistId,
-    #[cfg(feature = "media-controls")]
-    is_playing: bool,
-}
+#[cfg(feature = "notifications")]
+use notify_rust::Notification;
 
 #[cfg(feature = "media-controls")]
+use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
+
+#[derive(Clone, Copy)]
+enum MediaStatus {
+    Playing(PlaylistId),
+    Paused(PlaylistId),
+    Stopped,
+}
+
+impl MediaStatus {
+    pub fn playlist_id(&self) -> Option<PlaylistId> {
+        match self {
+            MediaStatus::Playing(id) => Some(*id),
+            MediaStatus::Paused(id) => Some(*id),
+            MediaStatus::Stopped => None,
+        }
+    }
+}
+
+struct MediaControlState {
+    #[cfg(feature = "media-controls")]
+    os_media_controls: Mutex<MediaControls>,
+    #[cfg(feature = "discord-rich-presence")]
+    discord_rpc: Mutex<discord_presence::Client>,
+    status: Mutex<MediaStatus>,
+}
+
 impl MediaControlState {
-    pub fn set_playing(&mut self, playing: bool) {
-        self.is_playing = playing
+    pub fn new() -> anyhow::Result<Self> {
+        let mut discord_rpc =
+            discord_presence::Client::new(std::env::var("DISCORD_RPC_CLIENT_ID")?.parse()?);
+        discord_rpc.start();
+
+        Ok(Self {
+            #[cfg(feature = "media-controls")]
+            os_media_controls: MediaControls::new(PlatformConfig {
+                display_name: "plst3",
+                dbus_name: "plst3",
+                hwnd: None,
+            })
+            .map(Mutex::new)
+            .map_err(|e| anyhow!("unable to create OS media controls: {e:?}"))?,
+            #[cfg(feature = "discord-rich-presence")]
+            discord_rpc: Mutex::new(discord_rpc),
+            status: Mutex::new(AppState::media_control_state_env()),
+        })
     }
 
-    pub fn toggle_playback(&mut self) -> bool {
-        self.is_playing = !self.is_playing;
-        self.is_playing
+    pub async fn attach_to_app(&self, app: Weak<AppState>) {
+        if let Some(app) = app.upgrade() {
+            let handle = Handle::current();
+            #[cfg(feature = "media-controls")]
+            {
+                let app = app.clone();
+                let handle = handle.clone();
+                self.os_media_controls
+                    .lock()
+                    .await
+                    .attach(move |event| {
+                        handle.block_on(async {
+                            app.handle_event(event)
+                                .await
+                                .map_err(|e| {
+                                    tracing::warn!("error handling media controls event: {e:?}")
+                                })
+                                .ok();
+                        })
+                    })
+                    .map_err(|e| {
+                        tracing::warn!("unable to attach event callback to media controls: {e:?}")
+                    })
+                    .ok();
+            }
+
+            #[cfg(feature = "discord-rich-presence")]
+            {
+                let app = app.clone();
+                let handle = handle.clone();
+                self.discord_rpc
+                    .lock()
+                    .await
+                    .on_ready(move |_| {
+                        let app = app.clone();
+                        handle.block_on(async move {
+                            app.update_media_metadata(true).await.ok();
+                        });
+                    })
+                    .persist();
+            };
+        }
     }
 }
 
 pub struct AppState {
     db_pool: SqliteConnectionPool,
     sockets: Mutex<HashMap<PlaylistId, SocketSinkContainer>>,
-    #[cfg(feature = "media-controls")]
-    media_state: Mutex<Option<MediaControlState>>,
-    #[cfg(feature = "media-controls")]
-    media_controls: Option<Mutex<MediaControls>>,
+    media_state: MediaControlState,
 }
 
 pub type AppRouter = Router<Arc<AppState>>;
@@ -121,60 +195,27 @@ pub enum FetchMediaError {
 
 impl AppState {
     pub async fn new() -> Result<Arc<Self>> {
-        #[cfg(feature = "media-controls")]
-        let media_controls = MediaControls::new(PlatformConfig {
-            dbus_name: "plst3",
-            display_name: "plst3",
-            // TODO: make this works on windows
-            hwnd: None,
-        })
-        .map_err(|e| tracing::warn!("unable to create media controls: {e:?}"))
-        .map(Mutex::new)
-        .ok();
-
         let app = Arc::new(Self {
             db_pool: establish_connection()
                 .context("unable to establish connection to database")?,
             sockets: Mutex::new(HashMap::new()),
-            #[cfg(feature = "media-controls")]
-            media_state: Mutex::new(Self::media_control_state_env()),
-            #[cfg(feature = "media-controls")]
-            media_controls,
+            media_state: MediaControlState::new()?,
         });
 
-        #[cfg(feature = "media-controls")]
-        if let Some(controls) = app.media_controls.as_ref() {
-            let app = app.clone();
-            let handle = tokio::runtime::Handle::current();
-            controls
-                .lock()
-                .await
-                .attach(move |event| {
-                    handle.block_on(async {
-                        app.handle_event(event)
-                            .await
-                            .map_err(|e| {
-                                tracing::warn!("error handling media controls event: {e:?}")
-                            })
-                            .ok();
-                    })
-                })
-                .map_err(|e| {
-                    tracing::warn!("unable to attach event callback to media controls: {e:?}")
-                })
-                .ok();
-        }
-
-        #[cfg(feature = "media-controls")]
-        app.update_media_metadata().await.ok();
+        app.media_state.attach_to_app(Arc::downgrade(&app)).await;
+        app.update_media_metadata(true).await.ok();
 
         Ok(app)
     }
 
     #[cfg(feature = "media-controls")]
     async fn handle_event(self: &Arc<Self>, event: MediaControlEvent) -> Result<()> {
-        let state = self.media_state.lock().await.as_ref().cloned();
-        if let Some(MediaControlState { playlist_id, .. }) = state {
+        let playlist_id = match *self.media_state.status.lock().await {
+            MediaStatus::Playing(id) => Some(id),
+            MediaStatus::Paused(id) => Some(id),
+            MediaStatus::Stopped => None,
+        };
+        if let Some(playlist_id) = playlist_id {
             match event {
                 MediaControlEvent::Play => {
                     self.play(playlist_id).await;
@@ -215,17 +256,16 @@ impl AppState {
             )
     }
 
-    #[cfg(feature = "media-controls")]
-    fn media_control_state_env() -> Option<MediaControlState> {
+    fn media_control_state_env() -> MediaStatus {
         std::env::var("CURRENT_PLAYLIST")
-            .ok()?
-            .parse::<PlaylistId>()
+            .ok()
+            .map(|s| s.parse::<PlaylistId>())
+            .transpose()
             .map_err(|e| tracing::warn!("unable to parse current playlist id: {e:?}"))
             .ok()
-            .map(|playlist| MediaControlState {
-                playlist_id: playlist,
-                is_playing: true,
-            })
+            .flatten()
+            .map(MediaStatus::Playing)
+            .unwrap_or(MediaStatus::Stopped)
     }
 
     pub fn acquire_db_connection(
@@ -341,13 +381,13 @@ impl AppState {
         }
     }
 
-    #[cfg(feature = "media-controls")]
-    pub async fn set_current_playlist(&self, id: Option<PlaylistId>) -> anyhow::Result<()> {
-        *self.media_state.lock().await = id.map(|id| MediaControlState {
-            playlist_id: id,
-            is_playing: true,
-        });
-        self.update_media_metadata().await?;
+    pub async fn set_current_playlist(
+        self: &Arc<Self>,
+        id: Option<PlaylistId>,
+    ) -> anyhow::Result<()> {
+        *self.media_state.status.lock().await =
+            id.map(MediaStatus::Playing).unwrap_or(MediaStatus::Stopped);
+        self.update_media_metadata(true).await?;
         Ok(())
     }
 
@@ -408,37 +448,78 @@ impl AppState {
         });
     }
 
-    #[cfg(feature = "media-controls")]
-    pub async fn update_media_metadata(&self) -> Result<()> {
-        if let Some(controls) = self.media_controls.as_ref() {
-            let mut controls = controls.lock().await;
-            if let Some(state) = self.media_state.lock().await.as_ref() {
-                controls
-                    .set_playback(if state.is_playing {
-                        MediaPlayback::Playing { progress: None }
-                    } else {
-                        MediaPlayback::Paused { progress: None }
-                    })
-                    .ok();
-                let mut db_conn = self.acquire_db_connection()?;
-                let media = Self::get_current_media(&mut db_conn, state.playlist_id).await?;
-                let media = media.as_ref();
-                controls
-                    .set_metadata(MediaMetadata {
-                        title: media.map(|m| m.display_title()),
-                        artist: media.map(|m| m.display_artist()),
-                        album: None,
-                        cover_url: None,
-                        duration: media.and_then(|m| m.duration).map(|d| {
-                            std::time::Duration::new(
-                                d.whole_seconds().max(0) as u64,
-                                d.subsec_nanoseconds().max(0) as u32,
-                            )
-                        }),
-                    })
-                    .ok();
-                #[cfg(feature = "i3-refresh")]
-                Self::trigger_wm_update();
+    pub async fn update_media_metadata(self: &Arc<Self>, media_changed: bool) -> Result<()> {
+        #[cfg(any(feature = "media-controls", feature = "discord-rich-presence"))]
+        {
+            let mut db_conn = self.acquire_db_connection()?;
+            let playlist_id = self.get_current_playlist().await;
+            let media = match playlist_id {
+                Some(playlist_id) => Self::get_current_media(&mut db_conn, playlist_id).await?,
+                None => None,
+            };
+            #[cfg(feature = "media-controls")]
+            {
+                let app = self.clone();
+                let media = media.clone();
+                // spawn blocking because this involves sync. IO
+                tokio::task::spawn_blocking(move || {
+                    let status = *app.media_state.status.blocking_lock();
+                    let mut os_media_controls = app.media_state.os_media_controls.blocking_lock();
+
+                    os_media_controls
+                        .set_playback(match status {
+                            MediaStatus::Playing(_) => MediaPlayback::Playing { progress: None },
+                            MediaStatus::Paused(_) => MediaPlayback::Paused { progress: None },
+                            MediaStatus::Stopped => MediaPlayback::Stopped,
+                        })
+                        .ok();
+                    os_media_controls
+                        .set_metadata(MediaMetadata {
+                            title: media.as_ref().map(|m| m.display_title()),
+                            artist: media.as_ref().map(|m| m.display_artist()),
+                            album: None,
+                            cover_url: None,
+                            duration: media.as_ref().and_then(|m| m.duration).map(|d| {
+                                std::time::Duration::new(
+                                    d.whole_seconds().max(0) as u64,
+                                    d.subsec_nanoseconds().max(0) as u32,
+                                )
+                            }),
+                        })
+                        .ok();
+                    #[cfg(feature = "i3-refresh")]
+                    Self::trigger_wm_update();
+                });
+            }
+
+            #[cfg(feature = "discord-rich-presence")]
+            if discord_presence::Client::is_ready() && media_changed {
+                let app = self.clone();
+                let media = media.clone();
+                tokio::task::spawn_blocking(move || {
+                    tracing::debug!("updating discord rich presence to media {media:?}");
+                    app.media_state.discord_rpc.blocking_lock().set_activity(move |_| {
+                        let mut a = Activity::new();
+                        if let Some(media) = media.as_ref() {
+                            a = a.details(media.display_title()).state(format!("by {}", media.display_artist()));
+                            if media.media_type == "yt" {
+                                a = a.append_buttons(|b| b.url(media.url.as_str()).label("Watch on YouTube"));
+                            }
+                        }
+                        if media_changed {
+                            a = a.timestamps(|ts| ts.start(time::OffsetDateTime::now_utc().unix_timestamp() as _));
+                        }
+                        a.assets(|mut ass| {
+                            if let Some(media) = media.as_ref() {
+                                if let Some(thumbnail_url) = get_media_thumbnail_url(&media.media_type, &media.url) {
+                                    ass = ass.large_image(thumbnail_url).large_text(media.display_title());
+                                }
+                            }
+                            ass.small_text("plst3")
+                               .small_image("https://raw.githubusercontent.com/btmxh/plst3/master/public/assets/plst.png")
+                        })
+                    }).ok();
+                });
             }
         }
 
@@ -446,11 +527,7 @@ impl AppState {
     }
 
     pub async fn get_current_playlist(&self) -> Option<PlaylistId> {
-        self.media_state
-            .lock()
-            .await
-            .as_ref()
-            .map(|state| state.playlist_id)
+        self.media_state.status.lock().await.playlist_id()
     }
 
     pub async fn media_changed(
@@ -462,9 +539,8 @@ impl AppState {
             sockets.reset();
         }
         self.send_message(playlist_id, "media-changed").await;
-        #[cfg(feature = "media-controls")]
-        if Some(playlist_id) == self.get_current_playlist().await {
-            self.update_media_metadata()
+        if self.get_current_playlist().await == Some(playlist_id) {
+            self.update_media_metadata(true)
                 .await
                 .map_err(|e| {
                     tracing::warn!("unable to update media metadata: {e}");
@@ -481,61 +557,60 @@ impl AppState {
         }
         Ok(())
     }
-    pub async fn play(&self, playlist_id: PlaylistId) {
-        #[cfg(feature = "media-controls")]
+    pub async fn play(self: &Arc<AppState>, playlist_id: PlaylistId) {
+        let mut update_metadata = false;
         {
-            if let Some(s) = self
-                .media_state
-                .lock()
-                .await
-                .as_mut()
-                .filter(|s| s.playlist_id == playlist_id)
-            {
-                s.set_playing(true)
+            let mut status = self.media_state.status.lock().await;
+            if status.playlist_id() == Some(playlist_id) {
+                *status = MediaStatus::Playing(playlist_id);
+                update_metadata = true;
             }
-            self.update_media_metadata().await.ok();
+        }
+
+        if update_metadata {
+            self.update_media_metadata(false).await.ok();
         }
         self.send_message(playlist_id, "play").await
     }
-    pub async fn pause(&self, playlist_id: PlaylistId) {
-        #[cfg(feature = "media-controls")]
+
+    pub async fn pause(self: &Arc<AppState>, playlist_id: PlaylistId) {
+        let mut update_metadata = false;
         {
-            if let Some(s) = self
-                .media_state
-                .lock()
-                .await
-                .as_mut()
-                .filter(|s| s.playlist_id == playlist_id)
-            {
-                s.set_playing(false)
+            let mut status = self.media_state.status.lock().await;
+            if status.playlist_id() == Some(playlist_id) {
+                *status = MediaStatus::Paused(playlist_id);
+                update_metadata = true;
             }
-            self.update_media_metadata().await.ok();
+        }
+
+        if update_metadata {
+            self.update_media_metadata(false).await.ok();
         }
         self.send_message(playlist_id, "pause").await
     }
-    #[cfg(feature = "media-controls")]
-    pub async fn playpause(&self, playlist_id: PlaylistId) {
-        #[cfg(feature = "media-controls")]
-        let message = if let Some(s) = self
-            .media_state
-            .lock()
-            .await
-            .as_mut()
-            .filter(|s| s.playlist_id == playlist_id)
-        {
-            if s.toggle_playback() {
-                "play"
-            } else {
-                "pause"
-            }
-        } else {
-            "playpause"
-        };
-        #[cfg(feature = "media-controls")]
-        self.update_media_metadata().await.ok();
 
-        #[cfg(not(feature = "media-controls"))]
-        let message = "playpause";
+    pub async fn playpause(self: &Arc<AppState>, playlist_id: PlaylistId) {
+        let mut update_metadata = false;
+        let message = {
+            let mut status = self.media_state.status.lock().await;
+            match *status {
+                MediaStatus::Playing(id) if id == playlist_id => {
+                    update_metadata = true;
+                    *status = MediaStatus::Paused(id);
+                    "pause"
+                }
+                MediaStatus::Paused(id) if id == playlist_id => {
+                    update_metadata = true;
+                    *status = MediaStatus::Playing(id);
+                    "play"
+                }
+                _ => "playpause",
+            }
+        };
+        if update_metadata {
+            self.update_media_metadata(false).await.ok();
+        }
+
         self.send_message(playlist_id, message).await
     }
 

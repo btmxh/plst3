@@ -203,7 +203,7 @@ impl From<MediaList> for MediaOrMediaList {
     }
 }
 
-#[derive(Queryable, Selectable, Debug, Serialize)]
+#[derive(Clone, Queryable, Selectable, Debug, Serialize)]
 #[diesel(table_name = crate::schema::medias)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Media {
