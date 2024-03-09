@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::{Context, Result};
 use context::create_app_router;
 
@@ -22,12 +24,14 @@ async fn main() -> Result<()> {
     let app = create_app_router()
         .await
         .context("unable to create app router")?;
-    let listener = TcpListener::bind("localhost:7272")
+    let addr = std::env::var("PLST_ADDR")
+        .map(Cow::Owned)
+        .unwrap_or(Cow::Borrowed("localhost:7272"));
+    let listener = TcpListener::bind(addr.as_ref())
         .await
         .context("unable to bind TcpListener")?;
     axum::serve(listener, app)
         .await
         .context("unable to serve axum server")?;
-
     Ok(())
 }

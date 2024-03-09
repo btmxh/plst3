@@ -16,12 +16,9 @@ use crate::{
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
         ResourceQueryError, ResourceQueryResult, SqliteConnectionPool,
     },
-    resolvers::{
-        get_media_thumbnail_url, normalize_media_url, resolve_media, resolve_media_list,
-        MediaResolveError,
-    },
+    resolvers::{normalize_media_url, resolve_media, resolve_media_list, MediaResolveError},
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::{extract::ws::Message, Router};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
 
@@ -35,7 +32,7 @@ use std::{
     sync::{Arc, Weak},
 };
 use thiserror::Error;
-use tokio::{runtime::Handle, sync::Mutex};
+use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 
@@ -74,7 +71,8 @@ impl MediaControlState {
     pub fn new() -> anyhow::Result<Self> {
         #[cfg(feature = "discord-rich-presence")]
         let discord_rpc = {
-            let mut rpc = discord_presence::Client::new(std::env::var("DISCORD_RPC_CLIENT_ID")?.parse()?);
+            let mut rpc =
+                discord_presence::Client::new(std::env::var("DISCORD_RPC_CLIENT_ID")?.parse()?);
             rpc.start();
             rpc
         };
@@ -87,55 +85,51 @@ impl MediaControlState {
                 hwnd: None,
             })
             .map(Mutex::new)
-            .map_err(|e| anyhow!("unable to create OS media controls: {e:?}"))?,
+            .map_err(|e| anyhow::anyhow!("unable to create OS media controls: {e:?}"))?,
             #[cfg(feature = "discord-rich-presence")]
             discord_rpc: Mutex::new(discord_rpc),
             status: Mutex::new(AppState::media_control_state_env()),
         })
     }
 
-    pub async fn attach_to_app(&self, app: Weak<AppState>) {
+    pub async fn attach_to_app(&self, #[allow(unused)] app: Weak<AppState>) {
+        #[cfg(feature = "media-controls")]
         if let Some(app) = app.upgrade() {
-            let handle = Handle::current();
-            #[cfg(feature = "media-controls")]
-            {
-                let app = app.clone();
-                let handle = handle.clone();
-                self.os_media_controls
-                    .lock()
-                    .await
-                    .attach(move |event| {
-                        handle.block_on(async {
-                            app.handle_event(event)
-                                .await
-                                .map_err(|e| {
-                                    tracing::warn!("error handling media controls event: {e:?}")
-                                })
-                                .ok();
-                        })
+            let handle = tokio::runtime::Handle::current();
+            self.os_media_controls
+                .lock()
+                .await
+                .attach(move |event| {
+                    handle.block_on(async {
+                        app.handle_event(event)
+                            .await
+                            .map_err(|e| {
+                                tracing::warn!("error handling media controls event: {e:?}")
+                            })
+                            .ok();
                     })
-                    .map_err(|e| {
-                        tracing::warn!("unable to attach event callback to media controls: {e:?}")
-                    })
-                    .ok();
-            }
-
-            #[cfg(feature = "discord-rich-presence")]
-            {
-                let app = app.clone();
-                let handle = handle.clone();
-                self.discord_rpc
-                    .lock()
-                    .await
-                    .on_ready(move |_| {
-                        let app = app.clone();
-                        handle.block_on(async move {
-                            app.update_media_metadata(true).await.ok();
-                        });
-                    })
-                    .persist();
-            };
+                })
+                .map_err(|e| {
+                    tracing::warn!("unable to attach event callback to media controls: {e:?}")
+                })
+                .ok();
         }
+
+        #[cfg(feature = "discord-rich-presence")]
+        if let Some(app) = app.upgrade() {
+            let app = app.clone();
+            let handle = tokio::runtime::Handle::current();
+            self.discord_rpc
+                .lock()
+                .await
+                .on_ready(move |_| {
+                    let app = app.clone();
+                    handle.block_on(async move {
+                        app.update_media_metadata(true).await.ok();
+                    });
+                })
+                .persist();
+        };
     }
 }
 
@@ -454,7 +448,10 @@ impl AppState {
         });
     }
 
-    pub async fn update_media_metadata(self: &Arc<Self>, media_changed: bool) -> Result<()> {
+    pub async fn update_media_metadata(
+        self: &Arc<Self>,
+        #[allow(unused)] media_changed: bool,
+    ) -> Result<()> {
         #[cfg(any(feature = "media-controls", feature = "discord-rich-presence"))]
         {
             let mut db_conn = self.acquire_db_connection()?;
@@ -517,7 +514,7 @@ impl AppState {
                         }
                         a.assets(|mut ass| {
                             if let Some(media) = media.as_ref() {
-                                if let Some(thumbnail_url) = get_media_thumbnail_url(&media.media_type, &media.url) {
+                                if let Some(thumbnail_url) = crate::resolvers::get_media_thumbnail_url(&media.media_type, &media.url) {
                                     ass = ass.large_image(thumbnail_url).large_text(media.display_title());
                                 }
                             }
@@ -539,7 +536,7 @@ impl AppState {
     pub async fn media_changed(
         self: &Arc<Self>,
         playlist_id: PlaylistId,
-        #[allow(unused)] media: Option<&Media>,
+        media: Option<&Media>,
     ) -> Result<()> {
         if let Some(sockets) = self.sockets.lock().await.get_mut(&playlist_id) {
             sockets.reset();
