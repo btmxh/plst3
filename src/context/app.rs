@@ -24,7 +24,10 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::ws::Message, Router};
 use diesel::{r2d2::ConnectionManager, SqliteConnection};
+
+#[cfg(feature = "discord-rich-presence")]
 use discord_presence::models::Activity;
+
 use futures::SinkExt;
 use r2d2::PooledConnection;
 use std::{
@@ -69,9 +72,12 @@ struct MediaControlState {
 
 impl MediaControlState {
     pub fn new() -> anyhow::Result<Self> {
-        let mut discord_rpc =
-            discord_presence::Client::new(std::env::var("DISCORD_RPC_CLIENT_ID")?.parse()?);
-        discord_rpc.start();
+        #[cfg(feature = "discord-rich-presence")]
+        let discord_rpc = {
+            let mut rpc = discord_presence::Client::new(std::env::var("DISCORD_RPC_CLIENT_ID")?.parse()?);
+            rpc.start();
+            rpc
+        };
 
         Ok(Self {
             #[cfg(feature = "media-controls")]
