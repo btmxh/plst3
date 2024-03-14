@@ -49,23 +49,24 @@
                   <option value="yt.be/"></option>
                 </datalist>
 
-                <button type="submit">add</button>
-                <input type="radio" name="position" value="add-to-end" id="add-to-end">
-                <label for="add-to-end">add to end</label>
+                <select name="position">
+                  <option value="queue-next">queue next</option>
+                  <option value="add-to-start">add to start</option>
+                  <option value="add-to-end">add to end</option>
+                </select>
 
-                <input type="radio" name="position" value="queue-next" id="queue-next" checked>
-                <label for="queue-next">queue next</label>
+                <button class="blue-button" type="submit">add</button>
               </form>
 
               <form class="playlist-controls" hx-trigger="submit">
                 <div class="button-bar">
-                  <button type="submit" hx-trigger="load,click,refresh-playlist from:body, media-changed from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
-                  <button type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
-                  <button type="submit" hx-patch="/playlist/<%= pid %>/up"   hx-target="#diagnostics" hx-swap="afterbegin">up</button>
-                  <button type="submit" hx-patch="/playlist/<%= pid %>/down" hx-target="#diagnostics" hx-swap="afterbegin">down</button>
-                  <button type="submit" hx-patch="/playlist/<%= pid %>/prev" hx-target="#diagnostics" hx-swap="afterbegin">prev</button>
-                  <button type="submit" hx-delete="/playlist/<%= pid %>/delete" hx-target="#diagnostics" hx-swap="afterbegin">remove</button>
-                  <button type="button" class="scroll-to-current-playing">current</button>
+                  <button class="blue-button" type="submit" hx-trigger="load,click,refresh-playlist from:body, media-changed from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
+                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
+                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/up"   hx-target="#diagnostics" hx-swap="afterbegin">up</button>
+                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/down" hx-target="#diagnostics" hx-swap="afterbegin">down</button>
+                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/prev" hx-target="#diagnostics" hx-swap="afterbegin">prev</button>
+                  <button class="red-button" type="submit" hx-delete="/playlist/<%= pid %>/delete" hx-target="#diagnostics" hx-swap="afterbegin">remove</button>
+                  <a class="blue-button button-link" type="button" href="#current-playlist-item">current</a>
                 </div>
 
                 <div id="playlist-container">

@@ -17,53 +17,48 @@
   <div class="content-wrapper">
     <section class="watch-select">
       <header>
-        <h1 style="display: inline">Existing playlists</h1>
-        <div>
-          <div>
-            <% if let Some(prev_offset) = prev_offset { %>
-              <a href="/watch?offset=<%= prev_offset %>">prev</a>
-            <% } %>
-            <% if let Some(next_offset) = next_offset { %>
-              <a href="/watch?offset=<%= next_offset %>">more</a>
-            <% } %>
-          </div>
-          <div>
-            <a hx-put="/playlist/new" hx-prompt="Enter playlist name">new playlist</a>
-          </div>
+        <h1>Existing playlists</h1>
+        <div class="buttons">
+          <% if let Some(prev_offset) = prev_offset { %>
+             <a class="button-link blue-button" href="/watch?offset=<%= prev_offset %>">prev</a>
+          <% } %>
+          <% if let Some(next_offset) = next_offset { %>
+            <a class="button-link blue-button" href="/watch?offset=<%= next_offset %>">more</a>
+          <% } %>
+          <button class="red-button" hx-put="/playlist/new" hx-prompt="Enter playlist name">new</button>
         </div>
       </header>
 
       <main>
-        <table>
-          <thead>
-          <tr>
-            <th scope="col" width="50%">Title</th>
-            <th scope="col">Date created</th>
-            <th scope="col">Duration</th>
-            <th scope="col">Media count</th>
-            <th scope="col"></th>
-          </tr>
-          </thead>
-
-          <tbody>
-            <% for playlist in playlists { %>
-            <tr>
-              <th scope="row">
-                <div><%= playlist.title %></div>
-                <a hx-patch="/playlist/<%= playlist.id %>/rename" hx-vals='{"refresh": true}' hx-prompt="Enter new playlist name">rename</a>
-                <a hx-delete="/playlist/<%= playlist.id %>/deletelist">delete</a>
-              </th>
-              <td><%= formatter.date(&playlist.add_timestamp) %></th>
-              <td><%= formatter.duration(&playlist.total_duration.0) %></th>
-              <td><%= playlist.num_items %></th>
-              <td>
-                <a href="/watch/<%= playlist.id %>" style="display: block">goto</a>
-                <a hx-post="/playlist/<%= playlist.id %>/play" hx-swap="none" style="display: block">default</a>
-              </td>
-            </tr>
-            <% } %>
-          </tbody>
-        </table>
+        <% for (playlist, current_item) in playlists { %>
+          <section class="playlist-section">
+            <a href="/watch/<%= playlist.id %>" class="no-link-effect" style="display: block">
+              <% let thumbnail_url = current_item.as_ref()
+                                                 .and_then(|(_, media)| crate::resolvers::get_media_thumbnail_url(&media.media_type, &media.url))
+                                                 .map(std::borrow::Cow::Owned)
+                                                 .unwrap_or(std::borrow::Cow::Borrowed("/assets/playlist-not-found.jpg")); %>
+              <img src="<%= thumbnail_url %>" alt="<%= playlist.title %>">
+            </a>
+            <div class="playlist-info">
+              <a href="/watch/<%= playlist.id %>" class="playlist-info-title"><%= playlist.title %></a>
+              <div> Created at <%= formatter.datetime(&playlist.add_timestamp) %> </div>
+              <div> Total length: <%= formatter.duration(&playlist.total_duration.0) %> (<%= playlist.num_items %> track(s)) </div>
+              <% if let Some((item, media)) = current_item { %>
+              <div> Currently playing: <%= media.display_title() %> - <%= media.display_artist() %> </div>
+              <% } %>
+              <div>
+                <a class="blue-button button-link" href="/watch/<%= playlist.id %>">goto</a>
+                <button class="blue-button" hx-patch="/playlist/<%= playlist.id %>/rename" hx-vals='{"refresh": true}' hx-prompt="Enter new playlist name">rename</button>
+                <button class="red-button" hx-delete="/playlist/<%= playlist.id %>/deletelist" hx-confirm="Are you sure you want to delete playlist '<%= playlist.title %>'?">delete</button>
+                <% if Some(playlist.id) == current_id { %>
+                  <span>current default playlist</span>
+                <% } else { %>
+                  <button class="blue-button" hx-post="/playlist/<%= playlist.id %>/play" hx-swap="none">default</button>
+                <% } %>
+              </div>
+            </div>
+          </section>
+        <% } %>
       </main>
     </section>
   </div>

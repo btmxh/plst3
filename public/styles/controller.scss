@@ -1,5 +1,5 @@
 .controller {
-  padding: 0.5rem;
+  padding: 0.5em;
 }
 
 .playlist-details {
@@ -15,13 +15,13 @@
 
 .media-info-form {
   display: grid;
-  gap: 0.25rem;
+  gap: 0.25em;
   grid-template-columns: 1fr;
 
   .media-info-grid {
     display: grid;
     grid-template-columns: 0fr 1fr 0fr;
-    gap: 0.25rem;
+    gap: 0.25em;
 
     label {
       text-align: center;
@@ -42,7 +42,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.25rem;
+    gap: 0.25em;
   }
 }
 

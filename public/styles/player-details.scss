@@ -1,14 +1,12 @@
 #player-details {
-    margin: 0.5rem;
+    margin: 0.5em;
     border-width: 1px;
-    border-color: #ccc;
+    border-color: #f75353;
     border-style: solid;
 
     nav {
-        border-width: 1px;
-        border-color: #ccc;
-        border-style: solid;
-        background-color: #f1f1f1;
+        border-bottom: 1px #f75353 solid;
+        background-color: #2f2f2f;
 
         ul {
             line-height: 0;
@@ -17,17 +15,18 @@
             li {
                 button {
                     font-size: large;
-                    padding: 0.5rem;
+                    padding: 0.5em;
                     border: none;
 
                     background-color: inherit;
+                    color: white;
 
                     &:hover {
-                        background-color: #ddd;
+                        background-color: #f97575;
                     }
 
                     &.active {
-                        background-color: #ccc;
+                        background-color: #f75353;
                     }
                 }
             }
@@ -48,9 +47,9 @@
                 flex-grow: 1;
                 display: flex;
                 flex-wrap: nowrap;
-                gap: 0.2rem;
+                gap: 0.2em;
                 align-items: center;
-                margin: 0.5rem;
+                margin: 0.5em;
     
                 input[type="text"] {
                     flex-grow: 1;
@@ -60,8 +59,8 @@
             .button-bar {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 0.5rem;
-                margin: 0.5rem;
+                gap: 0.5em;
+                margin: 0.5em;
             }
         }
     }
@@ -70,12 +69,12 @@
 .playlist-entry {
     display: inline-flex;
     width: 100%;
-    padding-right: 0.75rem;
+    padding-right: 0.75em;
 
     &:hover > .playlist-entry-content > .playlist-utilities {
         display: inline-flex;
-        gap: 0.2rem;
-        margin-left: 0.2rem;
+        gap: 0.2em;
+        margin-left: 0.2em;
     }
 
     .playlist-utilities {
@@ -89,10 +88,14 @@
 
 .main-playlist {
     overflow-y: scroll;
-    height: 20rem;
+    height: 20em;
 }
 
 .playlist-stats {
-    padding-right: 0.75rem;
+    padding-right: 0.75em;
     text-align: right;
+}
+
+#current-playlist-item {
+  color: #8ad5ef;
 }

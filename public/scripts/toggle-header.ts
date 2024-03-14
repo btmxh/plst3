@@ -16,3 +16,10 @@ window.addEventListener("keydown", (ev) => {
     lastPress = now;
   }
 });
+
+const tooltips = document.getElementsByClassName("toggle-header-tooltip");
+for(const tooltip of tooltips) {
+  tooltip.addEventListener("click", (ev) => {
+    header.classList.toggle("hidden");
+  })
+}

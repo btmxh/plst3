@@ -1,38 +1,45 @@
 .header {
-  background-color: rgb(196, 235, 255);
-  border-style: solid;
-  border-color: black;
-  border-width: 0.5rem;
-  height: 4rem;
+  background: #111;
   margin-top: 0px;
-  transition: margin-top 1s;
+  transition: all 1s;
+  box-shadow: 0 0.3em 0.2em #f75353;
+  z-index: 1;
+  position: relative;
 
-  & > .logo {
-    padding-right: 2rem;
-    padding-bottom: 0.5rem;
+  &>.logo {
+    padding-right: 2em;
   }
 
   &.hidden {
-    margin-top: -4rem;
+    margin-top: -4em;
+    box-shadow: none;
   }
 }
 
 .logo {
-  font-style: italic;
-  font-weight: 600;
-  font-family: serif;
-  font-size: 2rem;
-  line-height: 2rem;
+  height: 2.5em;
+  vertical-align: middle;
+  content: url("/assets/plst.svg");
 }
 
 .header-nav {
   display: flex;
-  gap: 1rem;
+  width: 100%;
+  gap: 1.5em;
   align-items: center;
-}
+  justify-content: space-between;
+  font-family: monospace;
+  font-size: 1.25em;
+  padding: 0.25em;
 
-.header-nav > a {
-  font-family: Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    monospace;
-  font-size: 1.25rem;
+  .tooltip-wrapper {
+    align-self: end;
+    flex-direction: row-reverse;
+    margin-left: auto;
+
+    .tooltip {
+      color: #aaa;
+      font-size: 0.6em;
+    }
+  }
 }

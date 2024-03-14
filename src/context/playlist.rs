@@ -113,7 +113,7 @@ async fn playlist_play(
 ) -> ResponseResult<impl IntoResponse> {
     app.set_current_playlist(Some(PlaylistId(playlist_id)))
         .await?;
-    Ok(())
+    Ok(AppendHeaders([("HX-Refresh", "true")]))
 }
 
 #[derive(Deserialize)]

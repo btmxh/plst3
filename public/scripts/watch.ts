@@ -123,13 +123,4 @@ socket = new ReconnectableSocket(async (msg) => {
   }
 });
 
-[...document.querySelectorAll(".scroll-to-current-playing")].forEach((e) => {
-  e.addEventListener("click", () => {
-    const currentPlaying = document.querySelector("#playlist-current-playing");
-    currentPlaying?.scrollIntoView({
-      behavior: "smooth",
-    });
-  });
-});
-
 fetchPlayer();
