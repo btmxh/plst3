@@ -104,5 +104,9 @@ pub fn get_media_thumbnail_url(media_type: &str, media_url: &str) -> Option<Stri
         return youtube::get_media_thumbnail_url(media_url);
     }
 
+    if media_type == "local" {
+        return Some("/assets/local.svg".to_owned());
+    }
+
     None
 }

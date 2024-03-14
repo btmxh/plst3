@@ -1,10 +1,11 @@
 <header class="header">
-  <h1 class="logo">plst</h1>
   <nav>
-    <ul>
-      <li class="header-nav">
-        <a class="header-nav-link" href="/index">index</a>
-        <a class="header-nav-link" href="/watch">watch</a>
+    <ul class="header-nav">
+      <li> <img src="/assets/plst.svg" alt="plst logo" class="logo"> </li>
+      <li> <a class="header-nav-link" href="/index">index</a> </li>
+      <li> <a class="header-nav-link" href="/watch">watch</a> </li>
+      <li class="tooltip-wrapper">
+        <button class="tooltip link-button toggle-header-tooltip" type="button">Press ESC twice to toggle this navbar</button>
       </li>
     </ul>
   </nav>

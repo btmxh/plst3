@@ -241,7 +241,7 @@ pub fn query_playlists(
     db_conn: &mut SqliteConnection,
     offset: usize,
     limit: usize,
-) -> ResourceQueryResult<Box<[Playlist]>> {
+) -> ResourceQueryResult<Vec<Playlist>> {
     use crate::schema::playlists::dsl::*;
     Ok(playlists
         .order(add_timestamp.desc())

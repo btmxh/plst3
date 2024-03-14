@@ -2,14 +2,6 @@
   margin: 1em auto;
   max-width: 40em;
   padding: 1em;
-
-  text-align: right;
-
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-  }
   
   table {
     width: 100%;
@@ -24,7 +16,7 @@
   th,
   td {
     border: 1px solid rgb(140, 140, 140);
-    padding: 0.5rem;
+    padding: 0.5em;
     text-align: center;
   }
 
@@ -32,6 +24,77 @@
     font-weight: bold;
     a {
       font-weight: normal;
+    }
+  }
+}
+
+.playlist-section {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 1em;
+  margin-bottom: 0.5em;
+  margin-top: 0.5em;
+
+  img {
+    aspect-ratio: 16/9;
+    height: 8em;
+    width: auto;
+    border-radius: 0.5rem;
+    transition: all 0.5s ease;
+
+    &:hover {
+      box-shadow: 0 0 .25rem .25rem #f75353;
+    }
+  }
+
+  .playlist-info {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: 0.75em;
+
+    .playlist-info-title {
+      display: block;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      overflow: hidden;
+      color: white;
+      font-size: 1.2rem;
+      font-weight: bold;
+
+      &:hover {
+        text-decoration: underline dotted;
+        white-space: normal;
+      }
+    }
+  }
+
+  div {
+    color: #aaa;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+
+    &:hover {
+      white-space: normal;
+    }
+  }
+}
+
+.watch-select {
+  background: #111;
+  padding-top: 0;
+
+  .buttons {
+    margin-left: auto;
+    margin-right: 0;
+    display: flex;
+    flex-direction: row;
+    justify-content: end;
+    gap: 0.5em;
+
+    button, a {
+      font-size: 0.75em;
     }
   }
 }

@@ -8,12 +8,14 @@ use crate::db::{
     media::{query_media_with_id, Media},
     playlist::{query_playlist_from_id, query_playlists, Playlist, PlaylistId},
     playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
+    ResourceQueryResult,
 };
 use axum::{
     extract::{Path, Query, State},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
+use diesel::SqliteConnection;
 use sailfish::TemplateOnce;
 use serde::{de, Deserialize, Deserializer};
 use time::{
@@ -48,9 +50,7 @@ struct WatchTemplate {
     pid: PlaylistId,
 }
 
-async fn watch(
-    Path(pid): Path<i32>,
-) -> ResponseResult<Html<String>> {
+async fn watch(Path(pid): Path<i32>) -> ResponseResult<Html<String>> {
     Ok(Html(
         WatchTemplate {
             pid: PlaylistId(pid),
@@ -207,10 +207,32 @@ struct WatchSelectParams {
 #[derive(TemplateOnce)]
 #[template(path = "watch_select.stpl")]
 struct WatchSelectTemplate<'a> {
-    playlists: &'a [Playlist],
+    playlists: &'a [(Playlist, Option<(PlaylistItem, Media)>)],
+    current_id: Option<PlaylistId>,
     next_offset: Option<usize>,
     prev_offset: Option<usize>,
     formatter: Formatter,
+}
+
+fn query_playlists_with_current_items(
+    db_conn: &mut SqliteConnection,
+    offset: usize,
+    limit: usize,
+) -> ResourceQueryResult<Vec<(Playlist, Option<(PlaylistItem, Media)>)>> {
+    let playlists = query_playlists(db_conn, offset, limit)?;
+    let mut result = Vec::new();
+    for playlist in playlists {
+        let current_item = match playlist.current_item.as_ref() {
+            Some(item_id) => {
+                let item = query_playlist_item(db_conn, *item_id)?;
+                let media = query_media_with_id(db_conn, item.media_id)?;
+                Some((item, media))
+            }
+            None => None,
+        };
+        result.push((playlist, current_item));
+    }
+    Ok(result)
 }
 
 async fn watch_select(
@@ -218,8 +240,8 @@ async fn watch_select(
     State(app): State<Arc<AppState>>,
 ) -> ResponseResult<Html<String>> {
     let mut db_conn = app.acquire_db_connection()?;
-    let count = 10;
-    let playlists = query_playlists(&mut db_conn, offset, count + 1)?;
+    let count = 5;
+    let playlists = query_playlists_with_current_items(&mut db_conn, offset, count + 1)?;
     let prev_offset = if offset > 0 {
         Some(offset.checked_sub(count).unwrap_or_default())
     } else {
@@ -233,6 +255,7 @@ async fn watch_select(
     Ok(Html(
         WatchSelectTemplate {
             playlists: &playlists[0..count.min(playlists.len())],
+            current_id: app.get_current_playlist().await,
             prev_offset,
             next_offset,
             formatter: Formatter,

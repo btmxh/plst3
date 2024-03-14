@@ -51,8 +51,24 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
 
     {
         let path = &url.path()[1..];
-        if check_video_id(path) && url.host_str() == Some("youtu.be") {
+        if check_video_id(path)
+            && (url.host_str() == Some("youtu.be") || url.host_str() == Some("yt.be"))
+        {
             return YoutubeUrlParseResult::Video(path.into());
+        }
+    }
+
+    {
+        let video_id = url
+            .query_pairs()
+            .find(|(key, _)| key == "v")
+            .map(|(_, value)| value)
+            .filter(|id| check_video_id(id));
+        if let Some(video_id) = video_id {
+            tracing::info!("{url:?}");
+            if url.host_str() == Some("youtube.com") || url.host_str() == Some("www.youtube.com") {
+                return YoutubeUrlParseResult::Video(video_id);
+            }
         }
     }
 

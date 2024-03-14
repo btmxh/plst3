@@ -749,7 +749,7 @@ impl AppState {
                 .summary(&format!("Media added to playlist {playlist_id}"))
                 .body(&body)
                 .action("default", "Go to media")
-                .icon("/home/torani/dev/plst3/dist/assets/plst_notify.png")
+                .icon("/home/torani/dev/plst3/dist/assets/plst.svg")
                 .show()
             {
                 Ok(n) => {
@@ -792,7 +792,7 @@ impl AppState {
             Notification::new()
                 .summary(&format!("Media changed in playlist {playlist_id}"))
                 .body(&body)
-                .icon("/home/torani/dev/plst3/dist/assets/plst_notify.png")
+                .icon("/home/torani/dev/plst3/dist/assets/plst.svg")
                 .show()
                 .ok()
         });

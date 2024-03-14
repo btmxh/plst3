@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <% include!("./header.stpl"); %>
-  </head>
-  <body>
-    <% include!("./navbar.stpl"); %>
+
+<head>
+  <% include!("./header.stpl"); %>
+</head>
+
+<body>
+  <% include!("./navbar.stpl"); %>
     <div class="content-wrapper">
       <main class="small-padding">
         <h1>
-          <span class="logo">plst</span>
+          <img src="/assets/plst.svg" alt="plst logo" class="logo">
           - a media player server
         </h1>
         <p>
@@ -29,7 +31,7 @@
         <p>
           this is designed as the music player of
           <a href="https://github.com/btmxh/nrs-impl">nrs</a>
-          (see 
+          (see
           <a href="https://github.com/btmxh/nrs-impl/issues/97">here</a>
           for context), but one can use it as a general purpose media player
         </p>
@@ -42,5 +44,6 @@
         </p>
       </main>
     </div>
-  </body>
+</body>
+
 </html>
