@@ -43,7 +43,7 @@
               <a href="/watch/<%= playlist.id %>" class="playlist-info-title"><%= playlist.title %></a>
               <div> Created at <%= formatter.datetime(&playlist.add_timestamp) %> </div>
               <div> Total length: <%= formatter.duration(&playlist.total_duration.0) %> (<%= playlist.num_items %> track(s)) </div>
-              <% if let Some((item, media)) = current_item { %>
+              <% if let Some((_, media)) = current_item { %>
               <div> Currently playing: <%= media.display_title() %> - <%= media.display_artist() %> </div>
               <% } %>
               <div>

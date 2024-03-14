@@ -81,6 +81,7 @@ impl Formatter {
             .unwrap_or_else(|_| "Invalid timestamp".into())
     }
 
+    #[allow(unused)]
     pub fn date(&self, datetime: &PrimitiveDateTime) -> String {
         datetime
             .format(&Iso8601::DATE)
@@ -214,6 +215,7 @@ struct WatchSelectTemplate<'a> {
     formatter: Formatter,
 }
 
+#[allow(clippy::type_complexity)]
 fn query_playlists_with_current_items(
     db_conn: &mut SqliteConnection,
     offset: usize,

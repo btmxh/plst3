@@ -248,8 +248,7 @@ pub fn query_playlists(
         .offset(offset.try_into().unwrap_or_default())
         .limit(limit.try_into().unwrap_or(10))
         .select(Playlist::as_select())
-        .load(db_conn)?
-        .into())
+        .load(db_conn)?)
 }
 
 pub fn rename_playlist(
