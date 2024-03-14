@@ -78,7 +78,7 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
             .query_pairs()
             .find(|(key, _)| key == "list")
             .map(|(_, value)| value);
-        if path == "/playlist" && url.host_str() == Some("youtube.com") {
+        if path == "/playlist" && (url.host_str() == Some("youtube.com") || url.host_str() == Some("www.youtube.com")) {
             if let Some(id) = list_id.filter(|id| check_list_id(id)) {
                 return YoutubeUrlParseResult::Playlist(id.into_owned().into());
             }
