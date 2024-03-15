@@ -12,7 +12,7 @@ use crate::{
             increase_media_view_count, insert_media, insert_media_list, query_media_list_with_url,
             query_media_with_id, query_media_with_url, Media, MediaOrMediaList,
         },
-        playlist::{query_playlist_from_id, update_playlist_current_item, PlaylistId},
+        playlist::{query_playlist_from_id, update_playlist_current_item, Playlist, PlaylistId},
         playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
         ResourceQueryError, ResourceQueryResult, SqliteConnectionPool,
     },
@@ -551,11 +551,9 @@ impl AppState {
                 .ok();
         }
         if let Some(media) = media {
-            #[cfg(feature = "notifications")]
-            {
-                self.notify_playlist_item_change(playlist_id, media);
-            }
             let mut db_conn = self.acquire_db_connection()?;
+            #[cfg(feature = "notifications")]
+            self.notify_playlist_item_change(&mut db_conn, playlist_id, media)?;
             increase_media_view_count(&mut db_conn, media.id)?;
         }
         Ok(())
@@ -735,7 +733,7 @@ impl AppState {
     #[cfg(feature = "notifications")]
     pub fn notify_playlist_add(
         self: &Arc<Self>,
-        playlist_id: PlaylistId,
+        playlist: &Playlist,
         medias: &MediaOrMediaList,
         item_id: PlaylistItemId,
     ) {
@@ -744,9 +742,11 @@ impl AppState {
             MediaOrMediaList::MediaList(media_list) => media_list.display_string(),
         };
         let arc_self = self.clone();
+        let playlist_title = playlist.title.clone();
+        let playlist_id = playlist.id;
         tokio::task::spawn_blocking(move || {
             match Notification::new()
-                .summary(&format!("Media added to playlist {playlist_id}"))
+                .summary(&format!("Media added to playlist '{playlist_title}'"))
                 .body(&body)
                 .action("default", "Go to media")
                 .icon("/home/torani/dev/plst3/dist/assets/plst.svg")
@@ -786,15 +786,22 @@ impl AppState {
     }
 
     #[cfg(feature = "notifications")]
-    pub fn notify_playlist_item_change(&self, playlist_id: PlaylistId, media: &Media) {
+    pub fn notify_playlist_item_change(
+        &self,
+        db_conn: &mut SqliteConnection,
+        playlist_id: PlaylistId,
+        media: &Media,
+    ) -> ResponseResult<()> {
         let body = media.display_string();
+        let playlist_title = query_playlist_from_id(db_conn, playlist_id)?.title;
         tokio::task::spawn_blocking(move || {
             Notification::new()
-                .summary(&format!("Media changed in playlist {playlist_id}"))
+                .summary(&format!("Media changed in playlist '{playlist_title}'"))
                 .body(&body)
                 .icon("/home/torani/dev/plst3/dist/assets/plst.svg")
                 .show()
                 .ok()
         });
+        Ok(())
     }
 }

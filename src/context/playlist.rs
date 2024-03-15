@@ -101,7 +101,7 @@ async fn playlist_add(
     #[allow(unused)]
     if let Some(first_item_id) = item_ids.first() {
         #[cfg(feature = "notifications")]
-        app.notify_playlist_add(playlist_id, &medias, *first_item_id);
+        app.notify_playlist_add(&playlist, &medias, *first_item_id);
         app.refresh_playlist(playlist.id).await;
     }
     Ok(())
