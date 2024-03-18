@@ -1,9 +1,9 @@
 <section class="playlist-details">
   <span>Current playlist: <%= playlist.title %> (ID <%= pid %>)</span>
   <div>
-    <button type="button" hx-patch="/playlist/<%= pid %>/rename" hx-prompt="Enter new playlist name">rename</button>
-    <button type="button" hx-post="/playlist/<%= pid %>/play" hx-swap="none">set as default</button>
-    <button type="button" hx-delete="/playlist/<%= pid %>/deletelist">delete playlist</button>
+    <button class="blue-button" type="button" hx-patch="/playlist/<%= pid %>/rename" hx-prompt="Enter new playlist name">rename</button>
+    <button class="blue-button" type="button" hx-post="/playlist/<%= pid %>/play" hx-swap="none">set as default</button>
+    <button class="red-button"  type="button" hx-delete="/playlist/<%= pid %>/deletelist">delete playlist</button>
   </div>
 </section>
 <hr class="controller-hr">
@@ -14,9 +14,7 @@
       <input type="text" name="media-title" value="<%= media.display_title() %>">
       <div class="label-div"> <label for="media-artist">Artist</label> </div>
       <input id="media-artist-input" type="text" name="media-artist" value="<%= media.display_artist() %>">
-      <div>
-        <button type="button">remove brackets</button>
-      </div>
+      <button class="red-button" type="button">remove brackets</button>
     </div>
     <div>
       Original title: <%= media.title %>
@@ -33,8 +31,8 @@
         </button>
     </div>
     <div class="form-buttons">
-      <button type="submit" hx-patch="/media/<%= media.id %>/metadata/edit" hx-target="#diagnostics" hx-swap="afterbegin">Submit</button>
-      <button type="reset">Reset</button>
+      <button class="blue-button" type="submit" hx-patch="/media/<%= media.id %>/metadata/edit" hx-target="#diagnostics" hx-swap="afterbegin">submit</button>
+      <button class="red-button" type="reset">reset</button>
     </div>
   </form>
   <hr class="controller-hr">
@@ -50,14 +48,16 @@
     </div>
   </section>
   <hr class="controller-hr">
-  <section>
+  <section class="debug-info-section">
+    <div class="debug-info">
     <p>Debug info:</p>
     <p> Media ID <%= media.id %>, type <%= media.media_type %>
     </p>
     <p> Playlist item ID: <%= item.id %> (next <%= item.next.map(|i| i.0.to_string()).unwrap_or_else(|| "none" .into())
           %>, prev <%= item.prev.map(|i| i.0.to_string()).unwrap_or_else(|| "none" .into()) %>) </p>
     <p> Media URL: <a href=<%=media.url %>><%= media.url %></a> </p>
-    <button type="button" hx-patch="/media/<%= media.id %>/update">update metadata</button>
+    </div>
+    <button class="red-button" type="button" hx-patch="/media/<%= media.id %>/update">update metadata</button>
   </section>
   <% } else { %>
     <div style="text-align: center;">

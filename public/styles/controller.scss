@@ -20,7 +20,7 @@
 
   .media-info-grid {
     display: grid;
-    grid-template-columns: 0fr 1fr 0fr;
+    grid-template-columns: 0fr 1fr auto;
     gap: 0.25em;
 
     label {
@@ -48,4 +48,10 @@
 
 .media-details-controller {
   text-align: right;
+}
+
+.debug-info-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
 }
