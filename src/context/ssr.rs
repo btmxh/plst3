@@ -38,22 +38,31 @@ pub fn ssr_router() -> AppRouter {
 
 #[derive(TemplateOnce)]
 #[template(path = "index.stpl")]
-struct IndexTemplate;
+struct IndexTemplate {
+    title: &'static str,
+}
 
 async fn index() -> ResponseResult<Html<String>> {
-    Ok(Html(IndexTemplate.render_once()?))
+    Ok(Html(IndexTemplate { title: "plst3" }.render_once()?))
 }
 
 #[derive(TemplateOnce)]
 #[template(path = "watch.stpl")]
 struct WatchTemplate {
     pid: PlaylistId,
+    title: String,
 }
 
-async fn watch(Path(pid): Path<i32>) -> ResponseResult<Html<String>> {
+async fn watch(
+    Path(pid): Path<i32>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<Html<String>> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let title = query_playlist_from_id(&mut db_conn, PlaylistId(pid))?.title;
     Ok(Html(
         WatchTemplate {
             pid: PlaylistId(pid),
+            title: format!("plst3 - {title}"),
         }
         .render_once()?,
     ))
@@ -92,7 +101,6 @@ impl Formatter {
 #[derive(TemplateOnce)]
 #[template(path = "playlist-get.stpl")]
 struct PlaylistGetTemplate {
-    // pid: PlaylistId,
     current_id: Option<PlaylistItemId>,
     items: Vec<PlaylistItem>,
     medias: Vec<Media>,
@@ -208,6 +216,7 @@ struct WatchSelectParams {
 #[derive(TemplateOnce)]
 #[template(path = "watch_select.stpl")]
 struct WatchSelectTemplate<'a> {
+    title: &'static str,
     playlists: &'a [(Playlist, Option<(PlaylistItem, Media)>)],
     current_id: Option<PlaylistId>,
     next_offset: Option<usize>,
@@ -256,6 +265,7 @@ async fn watch_select(
     };
     Ok(Html(
         WatchSelectTemplate {
+            title: "plst3",
             playlists: &playlists[0..count.min(playlists.len())],
             current_id: app.get_current_playlist().await,
             prev_offset,
