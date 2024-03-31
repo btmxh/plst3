@@ -1,4 +1,8 @@
-use std::{borrow::Cow, collections::HashSet, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+};
 
 use super::{
     app::{AppRouter, AppState},
@@ -101,18 +105,26 @@ impl Formatter {
 #[derive(TemplateOnce)]
 #[template(path = "playlist-get.stpl")]
 struct PlaylistGetTemplate {
+    pid: PlaylistId,
+    index_offset: usize,
+    args: String,
+    next_args: Option<String>,
+    prev_args: Option<String>,
+    count: usize,
     current_id: Option<PlaylistItemId>,
     items: Vec<PlaylistItem>,
     medias: Vec<Media>,
     total_duration: Duration,
     total_clients: usize,
-    fmt: Formatter,
     ids: HashSet<PlaylistItemId>,
+    fmt: Formatter,
 }
 
 struct PlaylistGetArgs {
-    from: Option<PlaylistItemId>,
-    limit: usize,
+    base: Option<PlaylistItemId>,
+    from: isize,
+    to: isize,
+    index_offset: usize,
     ids: HashSet<PlaylistItemId>,
 }
 
@@ -137,63 +149,131 @@ impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
     where
         A: de::MapAccess<'de>,
     {
-        let mut args = PlaylistGetArgs {
-            from: None,
-            limit: 1000,
-            ids: HashSet::new(),
-        };
+        let mut base: Option<PlaylistItemId> = None;
+        let mut from = 0;
+        let mut to: Option<isize> = None;
+        let mut index_offset = 0;
+        let mut ids = HashSet::new();
         while let Some(key) = map.next_key::<Cow<'static, str>>()? {
             if key == "from" {
-                args.from = Some(map.next_value()?);
-            } else if key == "limit" {
-                args.limit = map.next_value::<usize>()?.clamp(1, 3000);
+                from = map.next_value()?;
+            } else if key == "to" {
+                to = Some(map.next_value()?);
+            } else if key == "base" {
+                base = Some(map.next_value()?);
+            } else if key == "index_offset" {
+                index_offset = map.next_value()?;
             } else if let Some(id) = key.strip_prefix("playlist-item-") {
                 if let Ok(id) = id.parse() {
-                    args.ids.insert(id);
+                    ids.insert(id);
                 }
             }
         }
 
-        Ok(args)
+        let to = match to {
+            Some(to) if from < to && to < from + 1000 => to,
+            _ => from + 10,
+        };
+
+        Ok(PlaylistGetArgs {
+            base,
+            from,
+            to,
+            index_offset,
+            ids,
+        })
     }
+}
+
+fn query_playlist_items(
+    db_conn: &mut SqliteConnection,
+    base: PlaylistItemId,
+    from: isize,
+    to: isize,
+) -> ResourceQueryResult<Vec<PlaylistItem>> {
+    let mut items = VecDeque::with_capacity((to - from).try_into().expect("int cast panic"));
+    let item = query_playlist_item(db_conn, base)?;
+    if from <= 0 && to > 0 {
+        items.push_back(item);
+    }
+
+    let mut prev_id_opt = item.prev;
+    for i in from..=-1 {
+        let Some(prev_id) = prev_id_opt else {
+            break;
+        };
+        let prev = query_playlist_item(db_conn, prev_id)?;
+        prev_id_opt = prev.prev;
+        if i < to {
+            items.push_front(prev);
+        }
+    }
+
+    let mut next_id_opt = item.next;
+    for i in 1..to {
+        let Some(next_id) = next_id_opt else {
+            break;
+        };
+        let next = query_playlist_item(db_conn, next_id)?;
+        next_id_opt = next.next;
+        if i >= from {
+            items.push_back(next);
+        }
+    }
+
+    Ok(items.into())
 }
 
 async fn playlist_get(
     Path(playlist_id): Path<i32>,
-    Query(PlaylistGetArgs { from, limit, ids }): Query<PlaylistGetArgs>,
+    Query(PlaylistGetArgs {
+        base,
+        from,
+        to,
+        index_offset,
+        ids,
+    }): Query<PlaylistGetArgs>,
     State(app): State<Arc<AppState>>,
 ) -> ResponseResult<Response> {
     let mut db_conn = app.acquire_db_connection()?;
     let playlist_id = PlaylistId(playlist_id);
     let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
-    let from_id = from.or(playlist.first_playlist_item);
-    let mut items = Vec::with_capacity(limit);
-    if let Some(from_id) = from_id {
-        let from = query_playlist_item(&mut db_conn, from_id)?;
-        if from.playlist_id != playlist_id {
-            return Err(ResponseError::InvalidRequest(
-                "Playlist item does not belong to current playlist".into(),
-            ));
-        }
-
-        items.push(from);
-        while items.len() < limit {
-            if let Some(next_id) = items.last().unwrap().next {
-                let next = query_playlist_item(&mut db_conn, next_id)?;
-                items.push(next);
-            } else {
-                break;
-            }
-        }
-    }
-
+    let items = match base.or(playlist.first_playlist_item) {
+        Some(base) => query_playlist_items(&mut db_conn, base, from, to)?,
+        None => vec![],
+    };
     let mut medias = Vec::with_capacity(items.len());
     for item in items.iter() {
         let media = query_media_with_id(&mut db_conn, item.media_id)?;
         medias.push(media);
     }
 
+    let (args, prev_args, next_args) = if let Some(base) = base.or(playlist.first_playlist_item) {
+        let args = format!("base={base}&from={from}&to={to}&index_offset={index_offset}");
+        let count = to - from;
+        let prev_args = items.first().and_then(|item| item.prev).map(|prev_base| {
+            let from = 1 - count;
+            let index_offset = index_offset.saturating_add_signed(-count);
+            format!("base={prev_base}&from={from}&to=1&index_offset={index_offset}")
+        });
+        let next_args = items.last().and_then(|item| item.next).map(|next_base| {
+            let index_offset = index_offset.saturating_add_signed(count);
+            format!("base={next_base}&from=0&to={count}&index_offset={index_offset}")
+        });
+
+        (args, prev_args, next_args)
+    } else {
+        let args = format!("from={from}&to={to}");
+        (args, None, None)
+    };
+
     let template_args = PlaylistGetTemplate {
+        pid: playlist_id,
+        index_offset,
+        args,
+        next_args,
+        prev_args,
+        count: (to - from).try_into().expect("should not fail"),
         items,
         medias,
         current_id: playlist.current_item,

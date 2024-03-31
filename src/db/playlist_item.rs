@@ -69,7 +69,7 @@ impl Render for PlaylistItemId {
     }
 }
 
-#[derive(Queryable, Selectable, Debug)]
+#[derive(Queryable, Selectable, Debug, Clone, Copy)]
 #[diesel(table_name = crate::schema::playlist_items)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct PlaylistItem {
