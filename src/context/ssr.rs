@@ -62,7 +62,7 @@ async fn watch(
     Ok(Html(
         WatchTemplate {
             pid: PlaylistId(pid),
-            title: format!("plst3 - {title}"),
+            title: format!("{title} - plst3"),
         }
         .render_once()?,
     ))
