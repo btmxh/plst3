@@ -47,6 +47,7 @@ pub fn ssr_router() -> AppRouter {
         .route("/playlist/:id/controller", get(playlist_controller))
         .route("/playlist/:id/up", patch(playlist_move_up))
         .route("/playlist/:id/down", patch(playlist_move_down))
+        .route("/playlist/:id/listcurrent", get(playlist_listcurrent))
 }
 
 #[derive(TemplateOnce)]
@@ -567,4 +568,46 @@ async fn playlist_move_down(
     }
     // app.refresh_playlist(playlist_id).await;
     Ok(playlist_get_inner(playlist_id, args, app).await)
+}
+
+async fn playlist_listcurrent(
+    Path(playlist_id): Path<PlaylistId>,
+    Query(args): Query<PlaylistGetArgs>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<impl IntoResponse> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
+    let current_item_index = match playlist.current_item.zip(playlist.first_playlist_item) {
+        Some((current, mut first)) => {
+            let mut index: isize = 0;
+            while first != current {
+                index += 1;
+                if let Some(next) = query_playlist_item(&mut db_conn, first)?.next {
+                    first = next;
+                } else {
+                    index = 0;
+                    break;
+                }
+            }
+            index
+        }
+        None => 0,
+    };
+
+    let page_size = 10;
+    let from = current_item_index / page_size * page_size - current_item_index;
+    tracing::info!("{from}");
+
+    Ok(playlist_get_inner(
+        playlist_id,
+        PlaylistGetArgs {
+            base: playlist.current_item,
+            from,
+            to: from + page_size,
+            index_offset: current_item_index.try_into().expect("overflow"),
+            ids: args.ids,
+        },
+        app,
+    )
+    .await)
 }
