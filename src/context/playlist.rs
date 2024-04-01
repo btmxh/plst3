@@ -55,6 +55,7 @@ pub fn playlist_router() -> AppRouter {
 #[serde(rename_all = "kebab-case")]
 enum AddPosition {
     QueueNext,
+    AddToStart,
     AddToEnd,
 }
 
@@ -81,10 +82,10 @@ async fn playlist_add(
     let medias = app.fetch_medias(&mut db_conn, &url).await?;
     let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
     let pivot = match position {
+        AddPosition::AddToStart => None,
         AddPosition::QueueNext => playlist.current_item,
         AddPosition::AddToEnd => playlist.last_playlist_item,
-    }
-    .or(playlist.last_playlist_item);
+    };
     let total_duration = medias.total_duration();
     let media_ids = medias.media_ids();
     let item_ids =
