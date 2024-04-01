@@ -6,20 +6,26 @@
 <% } else { %>
 <div class="button-bar">
   <div class="button-bar-left">
-    <button class="blue-button" type="submit" hx-trigger="click,refresh-playlist from:body, media-changed from:body" hx-get="/playlist/<%= pid %>/list?<%= args %>" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
+    <button class="blue-button" type="submit" hx-trigger="click,refresh-playlist from:body, media-changed from:body" hx-get="/playlist/<%= pid %>/list?<%= args %>" hx-target="#playlist-container" hx-include="#playlist-container *">refresh</button>
     <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
-    <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/up?<%= args %>"   hx-target="#playlist-container">up</button>
-    <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/down?<%= args %>" hx-target="#playlist-container">down</button>
+    <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/up" hx-vals='<%- args_json %>' hx-target="#playlist-container">up</button>
+    <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/down" hx-vals='<%- args_json %>' hx-target="#playlist-container">down</button>
     <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/prev" hx-target="#diagnostics" hx-swap="afterbegin">prev</button>
     <button class="red-button" type="submit" hx-delete="/playlist/<%= pid %>/delete" hx-target="#diagnostics" hx-swap="afterbegin">remove</button>
     <button class="blue-button" type="submit" hx-get="/playlist/<%= pid %>/listcurrent" hx-target="#playlist-container">current</button>
   </div>
   <div class="button-bar-right">
+    <select name="count" onchange="document.body.dispatchEvent(new Event('refresh-playlist'))"">
+      <% for value in [10, 100, 1000] { %>
+      <% let selected = if value == count { "selected" } else { "" }; %>
+      <option value="<%= value %>" <%= selected %>><%= value %></option>
+      <% } %>
+    </select>
     <% if let Some(prev_args) = prev_args { %>
-    <a class="blue-button button-link" type="button" hx-get="/playlist/<%= pid %>/list?<%= prev_args %>" hx-target="#playlist-container" hx-include="#playlist-container input">-<%= count %></a>
+    <a class="blue-button button-link" type="button" hx-get="/playlist/<%= pid %>/list?<%= prev_args %>" hx-target="#playlist-container" hx-include="#playlist-container *">&lt;&lt;</a>
     <% } %>
     <% if let Some(next_args) = next_args { %>
-    <a class="blue-button button-link" type="button" hx-get="/playlist/<%= pid %>/list?<%= next_args %>" hx-target="#playlist-container" hx-include="#playlist-container input">+<%= count %></a>
+    <a class="blue-button button-link" type="button" hx-get="/playlist/<%= pid %>/list?<%= next_args %>" hx-target="#playlist-container" hx-include="#playlist-container *">&gt;&gt;</a>
     <% } %>
   </div>
   <!-- <a class="blue-button button-link" type="button" href="#current-playlist-item">current</a> -->

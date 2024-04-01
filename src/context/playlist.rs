@@ -7,15 +7,9 @@ use crate::{
         media::{query_media_with_id, replace_media_metadata, update_media_alt_data, MediaId},
         playlist::{
             append_to_playlist, create_empty_playlist, delete_playlist, query_playlist_from_id,
-            rename_playlist, update_playlist, update_playlist_first_item,
-            update_playlist_last_item, PlaylistId,
+            rename_playlist, update_playlist, PlaylistId,
         },
-        playlist_item::{
-            playlist_items_with_media_id, query_playlist_item, remove_playlist_item,
-            update_playlist_item_next_id, update_playlist_item_prev_and_next_id,
-            update_playlist_item_prev_id, PlaylistItemId,
-        },
-        ResourceQueryResult,
+        playlist_item::{playlist_items_with_media_id, remove_playlist_item, PlaylistItemId},
     },
     resolvers::resolve_media,
 };
@@ -28,7 +22,6 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
-use diesel::SqliteConnection;
 use serde::Deserialize;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},

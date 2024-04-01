@@ -54,6 +54,7 @@ a, .link-button {
 
 .button-link {
   display: inline-block;
+  user-select: none;
 }
 
 blockquote {
@@ -103,7 +104,11 @@ input {
   color: white;
   outline: none;
   border-radius: .25em;
-  border: none;
+  border-style: solid;
+  border-color: #f75353;
+  border-width: 1.5px;
+  padding: 0.3em;
+  margin: 0.1em;
 }
 
 select {
@@ -113,5 +118,9 @@ select {
   color: white;
   outline: none;
   border-radius: .25em;
-  border: none;
+  border-style: solid;
+  border-color: #f75353;
+  border-width: 1.5px;
+  padding: 0.3em;
+  margin: 0.1em;
 }

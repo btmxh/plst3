@@ -117,10 +117,11 @@ impl Formatter {
 struct PlaylistGetTemplate {
     pid: PlaylistId,
     index_offset: usize,
+    count: isize,
     args: String,
+    args_json: String,
     next_args: Option<String>,
     prev_args: Option<String>,
-    count: usize,
     current_id: Option<PlaylistItemId>,
     items: Vec<PlaylistItem>,
     medias: Vec<Media>,
@@ -134,6 +135,7 @@ struct PlaylistGetArgs {
     base: Option<PlaylistItemId>,
     from: isize,
     to: isize,
+    count: isize,
     index_offset: usize,
     ids: HashSet<PlaylistItemId>,
 }
@@ -160,8 +162,9 @@ impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
         A: de::MapAccess<'de>,
     {
         let mut base: Option<PlaylistItemId> = None;
-        let mut from = 0;
+        let mut from: Option<isize> = None;
         let mut to: Option<isize> = None;
+        let mut count: Option<isize> = None;
         let mut index_offset = 0;
         let mut ids = HashSet::new();
         while let Some(key) = map.next_key::<Cow<'static, str>>()? {
@@ -169,6 +172,8 @@ impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
                 from = map.next_value()?;
             } else if key == "to" {
                 to = Some(map.next_value()?);
+            } else if key == "count" {
+                count = Some(map.next_value()?);
             } else if key == "base" {
                 base = Some(map.next_value()?);
             } else if key == "index_offset" {
@@ -180,15 +185,17 @@ impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
             }
         }
 
-        let to = match to {
-            Some(to) if from < to && to < from + 1000 => to,
-            _ => from + 10,
-        };
+        let from = from
+            .or(to.zip(count).map(|(to, count)| to - count))
+            .unwrap_or_default();
+        let count = count.unwrap_or(100);
+        let to = to.unwrap_or(count + from);
 
         Ok(PlaylistGetArgs {
             base,
             from,
             to,
+            count,
             index_offset,
             ids,
         })
@@ -242,6 +249,7 @@ async fn playlist_get_inner(
         base,
         from,
         to,
+        count,
         mut index_offset,
         ids,
     }: PlaylistGetArgs,
@@ -259,29 +267,33 @@ async fn playlist_get_inner(
         medias.push(media);
     }
 
-    let count = 10;
     let args = items
         .first()
         .map(|item| item.id)
-        .map(|id| format!("base={id}&from=0&to={count}&index_offset={index_offset}"))
-        .unwrap_or_else(|| format!("from=0&to={count}&index_offset={index_offset}"));
+        .map(|id| format!("base={id}&from=0&index_offset={index_offset}"))
+        .unwrap_or_else(|| format!("from=0&index_offset={index_offset}"));
     let prev_args = items.first().and_then(|item| item.prev).map(|prev_base| {
-        let from = 1isize.saturating_sub_unsigned(items.len());
         let index_offset = index_offset.saturating_sub(1);
-        format!("base={prev_base}&from={from}&to=1&index_offset={index_offset}")
+        format!("base={prev_base}&to=1&index_offset={index_offset}")
     });
     let next_args = items.last().and_then(|item| item.next).map(|next_base| {
         let index_offset = index_offset.saturating_add(items.len());
-        format!("base={next_base}&from=0&to={count}&index_offset={index_offset}")
+        format!("base={next_base}&from=0&index_offset={index_offset}")
     });
 
     let template_args = PlaylistGetTemplate {
         pid: playlist_id,
         index_offset,
+        count,
         args,
+        args_json: serde_json::to_string(&serde_json::json!({
+            "base": base,
+            "from": 0,
+            "index_offset": index_offset,
+        }))
+        .expect("should be valid json"),
         next_args,
         prev_args,
-        count,
         items,
         medias,
         current_id: playlist.current_item,
@@ -465,15 +477,8 @@ fn partition_ids_into_ranges(
 async fn playlist_move_up(
     Path(playlist_id): Path<i32>,
     State(app): State<Arc<AppState>>,
-    Query(mut args): Query<PlaylistGetArgs>,
-    Form(form): Form<HashMap<String, String>>,
+    Form(mut args): Form<PlaylistGetArgs>,
 ) -> ResponseResult<impl IntoResponse> {
-    form.keys()
-        .filter_map(|key| key.strip_prefix("playlist-item-"))
-        .filter_map(|id| id.parse::<PlaylistItemId>().ok())
-        .for_each(|id| {
-            args.ids.insert(id);
-        });
     let playlist_id = PlaylistId(playlist_id);
     let mut db_conn = app.acquire_db_connection()?;
     let ranges = partition_ids_into_ranges(&mut db_conn, &args.ids, args.base)?;
@@ -519,15 +524,8 @@ async fn playlist_move_up(
 async fn playlist_move_down(
     Path(playlist_id): Path<i32>,
     State(app): State<Arc<AppState>>,
-    Query(mut args): Query<PlaylistGetArgs>,
-    Form(form): Form<HashMap<String, String>>,
+    Form(mut args): Form<PlaylistGetArgs>,
 ) -> ResponseResult<impl IntoResponse> {
-    form.keys()
-        .filter_map(|key| key.strip_prefix("playlist-item-"))
-        .filter_map(|id| id.parse::<PlaylistItemId>().ok())
-        .for_each(|id| {
-            args.ids.insert(id);
-        });
     let playlist_id = PlaylistId(playlist_id);
     let mut db_conn = app.acquire_db_connection()?;
     let ranges = partition_ids_into_ranges(&mut db_conn, &args.ids, args.base)?;
@@ -572,8 +570,8 @@ async fn playlist_move_down(
 
 async fn playlist_listcurrent(
     Path(playlist_id): Path<PlaylistId>,
-    Query(args): Query<PlaylistGetArgs>,
     State(app): State<Arc<AppState>>,
+    Form(mut args): Form<PlaylistGetArgs>,
 ) -> ResponseResult<impl IntoResponse> {
     let mut db_conn = app.acquire_db_connection()?;
     let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
@@ -594,20 +592,9 @@ async fn playlist_listcurrent(
         None => 0,
     };
 
-    let page_size = 10;
-    let from = current_item_index / page_size * page_size - current_item_index;
-    tracing::info!("{from}");
-
-    Ok(playlist_get_inner(
-        playlist_id,
-        PlaylistGetArgs {
-            base: playlist.current_item,
-            from,
-            to: from + page_size,
-            index_offset: current_item_index.try_into().expect("overflow"),
-            ids: args.ids,
-        },
-        app,
-    )
-    .await)
+    args.base = playlist.current_item;
+    args.from = current_item_index / args.count * args.count - current_item_index;
+    args.to = args.from + args.count;
+    args.index_offset = current_item_index.try_into().expect("overflow");
+    Ok(playlist_get_inner(playlist_id, args, app).await)
 }
