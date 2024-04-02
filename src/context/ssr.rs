@@ -1,19 +1,30 @@
-use std::{borrow::Cow, collections::HashSet, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
+};
 
 use super::{
     app::{AppRouter, AppState},
-    ResponseError, ResponseResult,
+    ResponseResult,
 };
 use crate::db::{
     media::{query_media_with_id, Media},
-    playlist::{query_playlist_from_id, query_playlists, Playlist, PlaylistId},
-    playlist_item::{query_playlist_item, PlaylistItem, PlaylistItemId},
+    playlist::{
+        query_playlist_from_id, query_playlists, update_playlist_first_item,
+        update_playlist_last_item, Playlist, PlaylistId,
+    },
+    playlist_item::{
+        query_playlist_item, update_playlist_item_next_id, update_playlist_item_prev_and_next_id,
+        update_playlist_item_prev_id, PlaylistItem, PlaylistItemId,
+    },
     ResourceQueryResult,
 };
 use axum::{
     extract::{Path, Query, State},
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, patch},
+    Form,
 };
 use diesel::SqliteConnection;
 use sailfish::TemplateOnce;
@@ -34,6 +45,9 @@ pub fn ssr_router() -> AppRouter {
         .route("/watch", get(watch_select))
         .route("/playlist/:id/list", get(playlist_get))
         .route("/playlist/:id/controller", get(playlist_controller))
+        .route("/playlist/:id/up", patch(playlist_move_up))
+        .route("/playlist/:id/down", patch(playlist_move_down))
+        .route("/playlist/:id/listcurrent", get(playlist_listcurrent))
 }
 
 #[derive(TemplateOnce)]
@@ -101,18 +115,28 @@ impl Formatter {
 #[derive(TemplateOnce)]
 #[template(path = "playlist-get.stpl")]
 struct PlaylistGetTemplate {
+    pid: PlaylistId,
+    index_offset: usize,
+    count: isize,
+    args: String,
+    args_json: String,
+    next_args: Option<String>,
+    prev_args: Option<String>,
     current_id: Option<PlaylistItemId>,
     items: Vec<PlaylistItem>,
     medias: Vec<Media>,
     total_duration: Duration,
     total_clients: usize,
-    fmt: Formatter,
     ids: HashSet<PlaylistItemId>,
+    fmt: Formatter,
 }
 
 struct PlaylistGetArgs {
-    from: Option<PlaylistItemId>,
-    limit: usize,
+    base: Option<PlaylistItemId>,
+    from: isize,
+    to: isize,
+    count: isize,
+    index_offset: usize,
     ids: HashSet<PlaylistItemId>,
 }
 
@@ -137,63 +161,139 @@ impl<'de> de::Visitor<'de> for PlaylistGetArgsVisitor {
     where
         A: de::MapAccess<'de>,
     {
-        let mut args = PlaylistGetArgs {
-            from: None,
-            limit: 1000,
-            ids: HashSet::new(),
-        };
+        let mut base: Option<PlaylistItemId> = None;
+        let mut from: Option<isize> = None;
+        let mut to: Option<isize> = None;
+        let mut count: Option<isize> = None;
+        let mut index_offset = 0;
+        let mut ids = HashSet::new();
         while let Some(key) = map.next_key::<Cow<'static, str>>()? {
             if key == "from" {
-                args.from = Some(map.next_value()?);
-            } else if key == "limit" {
-                args.limit = map.next_value::<usize>()?.clamp(1, 3000);
+                from = map.next_value()?;
+            } else if key == "to" {
+                to = Some(map.next_value()?);
+            } else if key == "count" {
+                count = Some(map.next_value()?);
+            } else if key == "base" {
+                base = Some(map.next_value()?);
+            } else if key == "index_offset" {
+                index_offset = map.next_value()?;
             } else if let Some(id) = key.strip_prefix("playlist-item-") {
                 if let Ok(id) = id.parse() {
-                    args.ids.insert(id);
+                    ids.insert(id);
                 }
             }
         }
 
-        Ok(args)
+        let from = from
+            .or(to.zip(count).map(|(to, count)| to - count))
+            .unwrap_or_default();
+        let count = count.unwrap_or(100);
+        let to = to.unwrap_or(count + from);
+
+        Ok(PlaylistGetArgs {
+            base,
+            from,
+            to,
+            count,
+            index_offset,
+            ids,
+        })
     }
 }
 
-async fn playlist_get(
-    Path(playlist_id): Path<i32>,
-    Query(PlaylistGetArgs { from, limit, ids }): Query<PlaylistGetArgs>,
-    State(app): State<Arc<AppState>>,
-) -> ResponseResult<Response> {
-    let mut db_conn = app.acquire_db_connection()?;
-    let playlist_id = PlaylistId(playlist_id);
-    let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
-    let from_id = from.or(playlist.first_playlist_item);
-    let mut items = Vec::with_capacity(limit);
-    if let Some(from_id) = from_id {
-        let from = query_playlist_item(&mut db_conn, from_id)?;
-        if from.playlist_id != playlist_id {
-            return Err(ResponseError::InvalidRequest(
-                "Playlist item does not belong to current playlist".into(),
-            ));
-        }
+fn query_playlist_items(
+    db_conn: &mut SqliteConnection,
+    base: PlaylistItemId,
+    from: isize,
+    to: isize,
+    index_offset: &mut usize,
+) -> ResourceQueryResult<Vec<PlaylistItem>> {
+    let mut items = VecDeque::with_capacity((to - from).try_into().expect("int cast panic"));
+    let item = query_playlist_item(db_conn, base)?;
+    if from <= 0 && to > 0 {
+        items.push_back(item);
+    }
 
-        items.push(from);
-        while items.len() < limit {
-            if let Some(next_id) = items.last().unwrap().next {
-                let next = query_playlist_item(&mut db_conn, next_id)?;
-                items.push(next);
-            } else {
-                break;
-            }
+    let mut prev_id_opt = item.prev;
+    for i in from..=-1 {
+        let Some(prev_id) = prev_id_opt else {
+            break;
+        };
+        let prev = query_playlist_item(db_conn, prev_id)?;
+        prev_id_opt = prev.prev;
+        if i < to {
+            items.push_front(prev);
+            *index_offset = index_offset.saturating_sub(1);
         }
     }
 
+    let mut next_id_opt = item.next;
+    for i in 1..to {
+        let Some(next_id) = next_id_opt else {
+            break;
+        };
+        let next = query_playlist_item(db_conn, next_id)?;
+        next_id_opt = next.next;
+        if i >= from {
+            items.push_back(next);
+        }
+    }
+
+    Ok(items.into())
+}
+
+async fn playlist_get_inner(
+    playlist_id: PlaylistId,
+    PlaylistGetArgs {
+        base,
+        from,
+        to,
+        count,
+        mut index_offset,
+        ids,
+    }: PlaylistGetArgs,
+    app: Arc<AppState>,
+) -> ResponseResult<Response> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
+    let items = match base.or(playlist.first_playlist_item) {
+        Some(base) => query_playlist_items(&mut db_conn, base, from, to, &mut index_offset)?,
+        None => vec![],
+    };
     let mut medias = Vec::with_capacity(items.len());
     for item in items.iter() {
         let media = query_media_with_id(&mut db_conn, item.media_id)?;
         medias.push(media);
     }
 
+    let args = items
+        .first()
+        .map(|item| item.id)
+        .map(|id| format!("base={id}&from=0&index_offset={index_offset}"))
+        .unwrap_or_else(|| format!("from=0&index_offset={index_offset}"));
+    let prev_args = items.first().and_then(|item| item.prev).map(|prev_base| {
+        let index_offset = index_offset.saturating_sub(1);
+        format!("base={prev_base}&to=1&index_offset={index_offset}")
+    });
+    let next_args = items.last().and_then(|item| item.next).map(|next_base| {
+        let index_offset = index_offset.saturating_add(items.len());
+        format!("base={next_base}&from=0&index_offset={index_offset}")
+    });
+
     let template_args = PlaylistGetTemplate {
+        pid: playlist_id,
+        index_offset,
+        count,
+        args,
+        args_json: serde_json::to_string(&serde_json::json!({
+            "base": base,
+            "from": 0,
+            "index_offset": index_offset,
+        }))
+        .expect("should be valid json"),
+        next_args,
+        prev_args,
         items,
         medias,
         current_id: playlist.current_item,
@@ -205,6 +305,14 @@ async fn playlist_get(
 
     let html = template_args.render_once()?;
     Ok(Html(html).into_response())
+}
+
+async fn playlist_get(
+    Path(playlist_id): Path<i32>,
+    Query(args): Query<PlaylistGetArgs>,
+    State(app): State<Arc<AppState>>,
+) -> ResponseResult<Response> {
+    playlist_get_inner(PlaylistId(playlist_id), args, app).await
 }
 
 #[derive(Deserialize)]
@@ -308,4 +416,185 @@ async fn playlist_controller(
         }
         .render_once()?,
     ))
+}
+
+#[derive(Clone, Debug)]
+struct PlaylistItemRange {
+    first: PlaylistItemId,
+    last: PlaylistItemId,
+    contains_base: bool,
+}
+
+fn partition_ids_into_ranges(
+    db_conn: &mut SqliteConnection,
+    ids: &HashSet<PlaylistItemId>,
+    base: Option<PlaylistItemId>,
+) -> ResourceQueryResult<Vec<PlaylistItemRange>> {
+    let mut range_dict = HashMap::new();
+    let mut items = Vec::new();
+    for id in ids.iter().cloned() {
+        let item = query_playlist_item(db_conn, id)?;
+        range_dict.insert(
+            id,
+            PlaylistItemRange {
+                first: id,
+                last: id,
+                contains_base: base == Some(id),
+            },
+        );
+        items.push(item);
+    }
+
+    for item in items {
+        if let Some(prev_item) = item.prev.as_ref() {
+            let prev_range = range_dict.get(prev_item);
+            let cur_range = range_dict.get(&item.id);
+
+            if let Some((prev_range, cur_range)) = prev_range.zip(cur_range) {
+                // merge prev_range and cur_range
+                let merged_range = PlaylistItemRange {
+                    first: prev_range.first,
+                    last: cur_range.last,
+                    contains_base: prev_range.contains_base || cur_range.contains_base,
+                };
+
+                range_dict.remove(prev_item);
+                range_dict.remove(&item.id);
+                range_dict.insert(merged_range.first, merged_range.clone());
+                range_dict.insert(merged_range.last, merged_range.clone());
+            }
+        }
+    }
+
+    let ranges = range_dict
+        .into_iter()
+        .filter(|(id, range)| *id == range.first)
+        .map(|(_, range)| range)
+        .collect();
+    Ok(ranges)
+}
+
+async fn playlist_move_up(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+    Form(mut args): Form<PlaylistGetArgs>,
+) -> ResponseResult<impl IntoResponse> {
+    let playlist_id = PlaylistId(playlist_id);
+    let mut db_conn = app.acquire_db_connection()?;
+    let ranges = partition_ids_into_ranges(&mut db_conn, &args.ids, args.base)?;
+    for range in ranges {
+        let PlaylistItemRange {
+            first,
+            last,
+            contains_base,
+        } = range;
+        let prev = query_playlist_item(&mut db_conn, first)?.prev;
+        let next = query_playlist_item(&mut db_conn, last)?.next;
+        if let Some(next) = next {
+            let next_next = query_playlist_item(&mut db_conn, next)?.next;
+            update_playlist_item_prev_and_next_id(&mut db_conn, next, prev, Some(first))?;
+            update_playlist_item_prev_id(&mut db_conn, first, Some(next))?;
+            update_playlist_item_next_id(&mut db_conn, last, next_next)?;
+            if let Some(next_next) = next_next {
+                update_playlist_item_prev_id(&mut db_conn, next_next, Some(last))?;
+            } else {
+                update_playlist_last_item(&mut db_conn, playlist_id, Some(last))?;
+            }
+            if let Some(prev) = prev {
+                update_playlist_item_next_id(&mut db_conn, prev, Some(next))?;
+            } else {
+                update_playlist_first_item(&mut db_conn, playlist_id, Some(next))?;
+            }
+            if contains_base {
+                args.base = query_playlist_item(
+                    &mut db_conn,
+                    args.base
+                        .expect("should not be None if contains_base is true"),
+                )?
+                .prev;
+            } else if args.base == Some(next) {
+                args.base = Some(range.last);
+            }
+        }
+    }
+    // app.refresh_playlist(playlist_id).await;
+    Ok(playlist_get_inner(playlist_id, args, app).await)
+}
+
+async fn playlist_move_down(
+    Path(playlist_id): Path<i32>,
+    State(app): State<Arc<AppState>>,
+    Form(mut args): Form<PlaylistGetArgs>,
+) -> ResponseResult<impl IntoResponse> {
+    let playlist_id = PlaylistId(playlist_id);
+    let mut db_conn = app.acquire_db_connection()?;
+    let ranges = partition_ids_into_ranges(&mut db_conn, &args.ids, args.base)?;
+    for range in ranges {
+        let PlaylistItemRange {
+            first,
+            last,
+            contains_base,
+        } = range;
+        let prev = query_playlist_item(&mut db_conn, first)?.prev;
+        let next = query_playlist_item(&mut db_conn, last)?.next;
+        if let Some(prev) = prev {
+            let prev_prev = query_playlist_item(&mut db_conn, prev)?.prev;
+            update_playlist_item_prev_and_next_id(&mut db_conn, prev, Some(last), next)?;
+            update_playlist_item_next_id(&mut db_conn, last, Some(prev))?;
+            update_playlist_item_prev_id(&mut db_conn, first, prev_prev)?;
+            if let Some(prev_prev) = prev_prev {
+                update_playlist_item_next_id(&mut db_conn, prev_prev, Some(first))?;
+            } else {
+                update_playlist_first_item(&mut db_conn, playlist_id, Some(first))?;
+            }
+            if let Some(next) = next {
+                update_playlist_item_prev_id(&mut db_conn, next, Some(prev))?;
+            } else {
+                update_playlist_last_item(&mut db_conn, playlist_id, Some(prev))?;
+            }
+            if contains_base {
+                args.base = query_playlist_item(
+                    &mut db_conn,
+                    args.base
+                        .expect("should not be None if contains_base is true"),
+                )?
+                .next;
+            } else {
+                args.base = Some(range.first);
+            }
+        }
+    }
+    // app.refresh_playlist(playlist_id).await;
+    Ok(playlist_get_inner(playlist_id, args, app).await)
+}
+
+async fn playlist_listcurrent(
+    Path(playlist_id): Path<PlaylistId>,
+    State(app): State<Arc<AppState>>,
+    Form(mut args): Form<PlaylistGetArgs>,
+) -> ResponseResult<impl IntoResponse> {
+    let mut db_conn = app.acquire_db_connection()?;
+    let playlist = query_playlist_from_id(&mut db_conn, playlist_id)?;
+    let current_item_index = match playlist.current_item.zip(playlist.first_playlist_item) {
+        Some((current, mut first)) => {
+            let mut index: isize = 0;
+            while first != current {
+                index += 1;
+                if let Some(next) = query_playlist_item(&mut db_conn, first)?.next {
+                    first = next;
+                } else {
+                    index = 0;
+                    break;
+                }
+            }
+            index
+        }
+        None => 0,
+    };
+
+    args.base = playlist.current_item;
+    args.from = current_item_index / args.count * args.count - current_item_index;
+    args.to = args.from + args.count;
+    args.index_offset = current_item_index.try_into().expect("overflow");
+    Ok(playlist_get_inner(playlist_id, args, app).await)
 }

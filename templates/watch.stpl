@@ -59,17 +59,7 @@
               </form>
 
               <form class="playlist-controls" hx-trigger="submit">
-                <div class="button-bar">
-                  <button class="blue-button" type="submit" hx-trigger="load,click,refresh-playlist from:body, media-changed from:body" hx-get="/playlist/<%= pid %>/list" hx-target="#playlist-container" hx-include="#playlist-container input">refresh</button>
-                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/next" hx-target="#diagnostics" hx-swap="afterbegin">next</button>
-                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/up"   hx-target="#diagnostics" hx-swap="afterbegin">up</button>
-                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/down" hx-target="#diagnostics" hx-swap="afterbegin">down</button>
-                  <button class="blue-button" type="submit" hx-patch="/playlist/<%= pid %>/prev" hx-target="#diagnostics" hx-swap="afterbegin">prev</button>
-                  <button class="red-button" type="submit" hx-delete="/playlist/<%= pid %>/delete" hx-target="#diagnostics" hx-swap="afterbegin">remove</button>
-                  <a class="blue-button button-link" type="button" href="#current-playlist-item">current</a>
-                </div>
-
-                <div id="playlist-container">
+                <div id="playlist-container" hx-trigger="load" hx-get="/playlist/<%= pid %>/list" hx-target="this">
                 </div>
               </form>
             </section>
