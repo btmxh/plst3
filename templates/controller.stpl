@@ -2,7 +2,7 @@
   <span>Current playlist: <%= playlist.title %> (ID <%= pid %>)</span>
   <div>
     <button class="blue-button" type="button" hx-patch="/playlist/<%= pid %>/rename" hx-prompt="Enter new playlist name">rename</button>
-    <button class="blue-button" type="button" hx-post="/playlist/<%= pid %>/play" hx-swap="none">set as default</button>
+    <button class="blue-button" type="button" hx-post="/playlist/<%= pid %>/play" hx-target="#diagnostics" hx-swap="afterbegin">set as default</button>
     <button class="red-button"  type="button" hx-delete="/playlist/<%= pid %>/deletelist">delete playlist</button>
   </div>
 </section>

@@ -99,13 +99,20 @@ async fn playlist_add(
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct PlaylistPlayQuery {
+    #[serde(default)]
+    refresh: bool,
+}
+
 async fn playlist_play(
     Path(playlist_id): Path<i32>,
+    Query(query): Query<PlaylistPlayQuery>,
     State(app): State<Arc<AppState>>,
 ) -> ResponseResult<impl IntoResponse> {
     app.set_current_playlist(Some(PlaylistId(playlist_id)))
         .await?;
-    Ok(AppendHeaders([("HX-Refresh", "true")]))
+    Ok(AppendHeaders([("HX-Refresh", query.refresh.to_string())]))
 }
 
 #[derive(Deserialize)]

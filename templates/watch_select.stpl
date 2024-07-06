@@ -53,7 +53,7 @@
                 <% if Some(playlist.id) == current_id { %>
                   <span>current default playlist</span>
                 <% } else { %>
-                  <button class="blue-button" hx-post="/playlist/<%= playlist.id %>/play" hx-swap="none">default</button>
+                  <button class="blue-button" hx-post="/playlist/<%= playlist.id %>/play?refresh=true" hx-swap="none">default</button>
                 <% } %>
               </div>
             </div>
