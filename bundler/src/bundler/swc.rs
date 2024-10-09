@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use swc::{
     config::{IsModule, SourceMapsConfig},
-    Compiler,
+    Compiler, PrintArgs,
 };
 use swc_common::{
     errors::Handler, sync::Lrc, FilePathMapping, Mark, SourceFile, SourceMap, GLOBALS,
@@ -57,7 +57,7 @@ pub fn compile_scripts(src_dir: &Path, dst_dir: &Path) -> Result<()> {
             let content =
                 std::fs::read_to_string(&src_path).context("unable to read script file")?;
             let swc_file =
-                cm.new_source_file(swc_common::FileName::Real(src_path.clone()), content);
+                cm.new_source_file(swc_common::FileName::Real(src_path.clone()).into(), content);
             scripts.push(ScriptFile {
                 src_path,
                 dst_path,
@@ -90,23 +90,27 @@ pub fn compile_scripts(src_dir: &Path, dst_dir: &Path) -> Result<()> {
         for (script, program) in compile_results {
             let top_level_mark = Mark::new();
             let module = program
-                .fold_with(&mut strip(top_level_mark))
+                .fold_with(&mut strip(Mark::new(), top_level_mark))
                 .module()
                 .expect("module should be enabled");
             let filename = script.src_path.file_name().map(|s| s.to_string_lossy());
             let output = compiler
                 .print(
                     &module,
-                    filename.as_deref(),
-                    script.dst_path.parent().map(|p| p.to_owned()),
-                    false,
-                    SourceMapsConfig::Bool(true),
-                    &Default::default(),
-                    None,
-                    Some(compiler.comments()),
-                    true,
-                    "",
-                    swc_ecma_codegen::Config::default().with_target(EsVersion::Es2022),
+                    PrintArgs {
+                        source_file_name: filename.as_deref(),
+                        source_root: script
+                            .dst_path
+                            .parent()
+                            .map(|p| p.to_string_lossy())
+                            .as_deref(),
+                        inline_sources_content: false,
+                        source_map: SourceMapsConfig::Bool(true),
+                        comments: Some(compiler.comments()),
+                        codegen_config: swc_ecma_codegen::Config::default()
+                            .with_target(EsVersion::Es2022),
+                        ..Default::default()
+                    },
                 )
                 .context("unable to generate code for script")?;
             write_contents(&script.dst_path, output.code.as_bytes())
