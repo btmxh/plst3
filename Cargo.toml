@@ -14,6 +14,7 @@ diesel_migrations = "2.1.0"
 discord-presence = { version = "1.0.0", optional = true }
 dotenvy = "0.15.7"
 futures = { version = "0.3.30", default-features = false }
+lazy_static = "1.5.0"
 notify-rust = { version = "4.10.0", optional = true}
 r2d2 = "0.8.10"
 sailfish = { version = "0.8.3", default-features = false, features = ["perf-inline", "config", "derive"] }
