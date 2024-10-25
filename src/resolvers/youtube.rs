@@ -1,12 +1,29 @@
 use std::borrow::Cow;
 
 use anyhow::Result;
+use lazy_static::lazy_static;
 use url::Url;
 use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
 use crate::db::media::{NewMedia, NewMediaList};
 
 use super::MediaResolveError;
+
+lazy_static! {
+    static ref FORCE_IPV4: bool = std::env::var("YTDL_FORCE_IPV4")
+        .ok()
+        .and_then(|env| env.parse::<bool>().ok())
+        .unwrap_or_default();
+}
+
+async fn run_ytdl(url: impl Into<String>) -> Result<YoutubeDlOutput, youtube_dl::Error> {
+    let mut builder = YoutubeDl::new(url);
+    builder.extra_arg("--ignore-no-formats-error");
+    if *FORCE_IPV4 {
+        builder.extra_arg("--force-ipv4");
+    }
+    builder.run_async().await
+}
 
 pub fn youtube_video_url_string(id: &str) -> String {
     format!("https://youtu.be/{id}")
@@ -78,7 +95,9 @@ pub fn check_normalized_youtube_url(url: &Url) -> YoutubeUrlParseResult {
             .query_pairs()
             .find(|(key, _)| key == "list")
             .map(|(_, value)| value);
-        if path == "/playlist" && (url.host_str() == Some("youtube.com") || url.host_str() == Some("www.youtube.com")) {
+        if path == "/playlist"
+            && (url.host_str() == Some("youtube.com") || url.host_str() == Some("www.youtube.com"))
+        {
             if let Some(id) = list_id.filter(|id| check_list_id(id)) {
                 return YoutubeUrlParseResult::Playlist(id.into_owned().into());
             }
@@ -103,11 +122,7 @@ pub async fn resolve_media(url: &Url) -> Result<NewMedia<'static>, MediaResolveE
     ) {
         return Err(MediaResolveError::UnsupportedUrl);
     }
-    match YoutubeDl::new(url.to_string())
-        .extra_arg("--ignore-no-formats-error")
-        .run_async()
-        .await
-    {
+    match run_ytdl(url.as_str()).await {
         Ok(YoutubeDlOutput::SingleVideo(video)) => Ok(NewMedia {
             title: video
                 .title
@@ -141,7 +156,7 @@ pub async fn resolve_media_list(
     ) {
         return Err(MediaResolveError::UnsupportedUrl);
     }
-    match YoutubeDl::new(url.to_string()).run_async().await {
+    match run_ytdl(url.as_str()).await {
         Ok(YoutubeDlOutput::Playlist(playlist)) => Ok((
             NewMediaList {
                 title: playlist

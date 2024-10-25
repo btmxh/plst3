@@ -2441,6 +2441,7 @@ dependencies = [
  "discord-presence",
  "dotenvy",
  "futures",
+ "lazy_static",
  "notify-rust",
  "r2d2",
  "sailfish",
