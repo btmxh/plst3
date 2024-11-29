@@ -52,6 +52,11 @@ a, .link-button {
   font-family: monospace;
 }
 
+.button-link {
+  display: inline-block;
+  user-select: none;
+}
+
 blockquote {
   background-color: #f75353;
   display: inline-block;
@@ -85,6 +90,7 @@ main {
   font-size: 1em;
   transition: all 0.5s ease;
   color: black;
+  line-height: 1.5;
 
   &:hover {
     filter: brightness(150%);
@@ -98,7 +104,11 @@ input {
   color: white;
   outline: none;
   border-radius: .25em;
-  border: none;
+  border-style: solid;
+  border-color: #f75353;
+  border-width: 1.5px;
+  padding: 0.3em;
+  margin: 0.1em;
 }
 
 select {
@@ -108,5 +118,9 @@ select {
   color: white;
   outline: none;
   border-radius: .25em;
-  border: none;
+  border-style: solid;
+  border-color: #f75353;
+  border-width: 1.5px;
+  padding: 0.3em;
+  margin: 0.1em;
 }

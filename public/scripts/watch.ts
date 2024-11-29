@@ -73,10 +73,6 @@ const fetchPlayer = async () => {
   }
 };
 
-const fetchPlaylist = async () => {
-  document.body.dispatchEvent(new Event("refresh-playlist"));
-};
-
 const playerPlay = async () => {
   if (current?.media_type === "yt") {
     const player = await getCachedYoutubePlayer("yt-player");
